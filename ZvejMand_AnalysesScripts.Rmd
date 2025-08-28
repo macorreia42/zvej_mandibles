@@ -1,7 +1,7 @@
 ---
 title: "Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study"
 author: "Maria Ana Correia"
-#date: '`r format(Sys.time(), "%d/%m/%Y")`'
+date: '`r format(Sys.time(), "%d/%m/%Y")`'
 subtitle: "Analyses Scripts"
 output:
   html_document:
@@ -24,22 +24,53 @@ csl: apa-single-spaced
 ```{r setup, echo=FALSE,include=FALSE}
 #this makes images save in folder in directory
 knitr::opts_chunk$set(
+  echo = TRUE, #shows code
+  warning = FALSE, message = FALSE, #stops warning messages
   fig.path = "images/",
-  dev = c("pdf", "png")
+  dev = c("svg", "png", "tiff"), #saves figures as svg, tiff, and png in images folder
+  dpi = 500, #publishing quality for combination art (Elsevier)
+  tidy.opts=list(width.cutoff=60), # stops code from running off page
+  tidy=TRUE
 )
-```
 
-```{r variables, echo=FALSE,include=FALSE}
+# function to load or install from CRAN or GitHub
+# installs missing packages when sharing with others
+load_or_install <- function(pkg, github = NULL) {
+  # If package not available, install it
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    if (is.null(github)) {
+      # Install from CRAN
+      install.packages(pkg, dependencies = TRUE)
+    } else {
+      # Install from GitHub (needs remotes package)
+      if (!requireNamespace("remotes", quietly = TRUE)) {
+        install.packages("remotes")
+      }
+      remotes::install_github(github, dependencies = TRUE)
+    }
+  }
+  # Finally load it
+  suppressPackageStartupMessages(
+    library(pkg, character.only = TRUE)
+  )
+}
 
 ```
 
 ```{r packages, eval=FALSE,include=FALSE}
-library(tidyverse)
-require(car) #for Levene test
-require("gridExtra")#to make parallel graphs
-require("broom")#to make pretty test output
-require("pgirmess")
-require("pander")
+# CRAN packages
+cran_pkgs <- c("tidyverse", "styler")
+
+purrr::walk(cran_pkgs, load_or_install)
+
+# GitHub packages (supply the repo as github = "user/repo")
+#load_or_install("ggtree", github = "YuLab-SMU/ggtree")
+
+
+```
+
+```{r variables, echo=FALSE, include=FALSE}
+
 ```
 
 ```{r functions, eval=FALSE,include=FALSE}

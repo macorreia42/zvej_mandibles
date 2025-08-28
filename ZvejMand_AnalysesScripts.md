@@ -1,7 +1,7 @@
 ---
 title: "Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study"
 author: "Maria Ana Correia"
-#date: '28/08/2025'
+date: '28/08/2025'
 subtitle: "Analyses Scripts"
 output:
   html_document:
