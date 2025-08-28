@@ -1,0 +1,79 @@
+---
+title: Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study
+author: "Maria Ana Correia"
+date: "`r format(Sys.time(), '%d/%m/%Y')`"
+subtitle: Analyses Scripts
+output:
+  html_document:
+    code_folding: hide
+    code_link: true
+    keep_md: true
+    toc: true
+    toc_float: true
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+    citation_package: default
+    includes:
+      in_header: mypackages.tex
+bibliography: references.bib
+link-citations: true
+csl: apa-single-spaced
+---
+
+```{r setup, echo=FALSE,include=FALSE}
+#this makes images save in folder in directory
+knitr::opts_chunk$set(
+  fig.path = "images/",
+  dev = c("pdf", "png")
+)
+```
+
+```{r variables, echo=FALSE,include=FALSE}
+AllPop<-read.csv("AllPop.csv",header=TRUE,sep=",",
+                 stringsAsFactors = FALSE)
+```
+
+```{r packages, echo=FALSE,include=FALSE}
+library(tidyverse)
+require(car) #for Levene test
+require("gridExtra")#to make parallel graphs
+require("broom")#to make pretty test output
+require("pgirmess")
+require("pander")
+```
+
+```{r functions, echo=FALSE,include=FALSE}
+#!setting decimals
+fmt_decimals <- function(decimals=0){
+    function(x) format(x,nsmall = decimals,scientific = FALSE)
+}
+#graphical settings for ggplot
+my_theme    <- theme(axis.text=element_text(size=8,colour="black"),
+      #makes numbers smaller and black (consider final display)
+        axis.ticks=element_line (size=0.5,colour="black"),#same for ticks
+        axis.title=element_text(size=10),#and for axis titles
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, size=0.5))
+
+#calculate outliers
+
+is_outlier <- function(x) {
+  return(x < quantile(x, 0.25,na.rm=TRUE) - 1.5 * IQR(x,na.rm=TRUE) | x > quantile(x, 0.75,na.rm=TRUE) + 1.5 * IQR(x,na.rm=TRUE))
+}
+
+```
+
+```{r test, echo=FALSE,eval=FALSE}
+
+```
+
+```{r stats, echo=FALSE}
+
+```
+
+```{r  session, echo=FALSE}
+sessionInfo()
+```
