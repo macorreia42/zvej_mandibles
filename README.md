@@ -9,6 +9,7 @@ This repository documents the geometric morphometric analyses of mandibles from 
 -   `ZvejMand_AnalysesScripts.md` - intermediate Markdown file
 -   `ZvejMand_AnalysesScripts.html` - .html file knitted from `JASR2023.Rmd`
 -   `apa-single-spaced.csl` - reference style APA
+-   `references.bib` - reference list
 -   images folder - folder created to save images produced by code
 
 ## License
