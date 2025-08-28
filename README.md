@@ -4,17 +4,11 @@ This repository documents the statistical analysis of dental microwear variables
 ## Files included
 
 -   `zvej_mandibles.Rproj` - R project
-
+-   `X.csv` - **dataset**
 -   `ZvejMand_AnalysesScripts.Rmd` - Rmarkdown file outlining all analyses
-
 -   `X.md` - intermediate Markdown file
-
 -   `X.html` - .html file knitted from `JASR2023.Rmd`
-
 -   `apa-single-spaced.csl` - reference style APA
-
--   `X.csv` - **dataset with SSFA and STA variables**
-
 -   images folder - folder created to save images produced by code
 
 ## License
