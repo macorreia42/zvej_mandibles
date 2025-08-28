@@ -6,8 +6,8 @@ This repository documents the geometric morphometric analyses of mandibles from 
 -   `zvej_mandibles.Rproj` - R project
 -   `X.csv` - **dataset**
 -   `ZvejMand_AnalysesScripts.Rmd` - Rmarkdown file outlining all analyses
--   `X.md` - intermediate Markdown file
--   `X.html` - .html file knitted from `JASR2023.Rmd`
+-   `ZvejMand_AnalysesScripts.md` - intermediate Markdown file
+-   `ZvejMand_AnalysesScripts.html` - .html file knitted from `JASR2023.Rmd`
 -   `apa-single-spaced.csl` - reference style APA
 -   images folder - folder created to save images produced by code
 
