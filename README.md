@@ -1,5 +1,5 @@
 # Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study
-This repository documents the statistical analysis of dental microwear variables from Kenyan living human populations, within a Journal of Archaeological Science Reports submission. It is also my first attempt at including more reproducible code within a submission.
+This repository documents the geometric morphometric analyses of mandibles from Zvejnieki, a Meos-Neolithic site in present Latvia, within a presentation to [MESO2025](https://meso2025.sciencesconf.org/)
 
 ## Files included
 
