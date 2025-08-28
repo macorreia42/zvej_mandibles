@@ -1,8 +1,8 @@
 ---
-title: Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study
+title: "Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study"
 author: "Maria Ana Correia"
-date: "`r format(Sys.time(), '%d/%m/%Y')`"
-subtitle: Analyses Scripts
+#date: '`r format(Sys.time(), "%d/%m/%Y")`'
+subtitle: "Analyses Scripts"
 output:
   html_document:
     code_folding: hide
@@ -30,11 +30,10 @@ knitr::opts_chunk$set(
 ```
 
 ```{r variables, echo=FALSE,include=FALSE}
-AllPop<-read.csv("AllPop.csv",header=TRUE,sep=",",
-                 stringsAsFactors = FALSE)
+
 ```
 
-```{r packages, echo=FALSE,include=FALSE}
+```{r packages, eval=FALSE,include=FALSE}
 library(tidyverse)
 require(car) #for Levene test
 require("gridExtra")#to make parallel graphs
@@ -43,7 +42,7 @@ require("pgirmess")
 require("pander")
 ```
 
-```{r functions, echo=FALSE,include=FALSE}
+```{r functions, eval=FALSE,include=FALSE}
 #!setting decimals
 fmt_decimals <- function(decimals=0){
     function(x) format(x,nsmall = decimals,scientific = FALSE)
@@ -70,9 +69,17 @@ is_outlier <- function(x) {
 
 ```
 
+[@field2012]
+
 ```{r stats, echo=FALSE}
 
+
 ```
+
+# References
+
+::: {#refs}
+:::
 
 ```{r  session, echo=FALSE}
 sessionInfo()
