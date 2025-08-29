@@ -21,6 +21,8 @@ link-citations: true
 csl: apa-single-spaced
 ---
 
+This file documents the geometric morphometrics of Zvejnieki mandibles. 3D landmarks were collected using 3DSlicer and statistical analyses used geomorph and SlicerMorph/SllicerMorphR [@adams2025; @rolfe2021].
+
 ```{r setup, echo=FALSE,include=FALSE}
 #this makes images save in folder in directory
 knitr::opts_chunk$set(
@@ -57,41 +59,50 @@ load_or_install <- function(pkg, github = NULL) {
 
 ```
 
-```{r packages, eval=FALSE,include=FALSE}
+```{r packages, echo=FALSE,include=FALSE}
 # CRAN packages
-cran_pkgs <- c("tidyverse", "styler")
+cran_pkgs <- c("tidyverse", "styler", "geomorph", "osfr")
 
 purrr::walk(cran_pkgs, load_or_install)
 
 # GitHub packages (supply the repo as github = "user/repo")
-#load_or_install("ggtree", github = "YuLab-SMU/ggtree")
+load_or_install("SlicerMorphR", github = "SlicerMorph/SlicerMorphR")
 
 
 ```
 
 ```{r variables, echo=FALSE, include=FALSE}
-
+test <-read.markups.json("ILH_Zvejnieki_34.6.35_merged_miss.mrk.json")
 ```
 
 ```{r functions, eval=FALSE,include=FALSE}
 #!setting decimals
-fmt_decimals <- function(decimals=0){
-    function(x) format(x,nsmall = decimals,scientific = FALSE)
+fmt_decimals <- function(decimals = 0) {
+  function(x) format(x, nsmall = decimals, scientific = FALSE)
 }
 #graphical settings for ggplot
-my_theme    <- theme(axis.text=element_text(size=8,colour="black"),
-      #makes numbers smaller and black (consider final display)
-        axis.ticks=element_line (size=0.5,colour="black"),#same for ticks
-        axis.title=element_text(size=10),#and for axis titles
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.border = element_rect(colour = "black", fill=NA, size=0.5))
+my_theme <- theme(
+  axis.text = element_text(size = 8, colour = "black"),
+  # makes numbers smaller and black (consider final display)
+  axis.ticks = element_line(linewidth = 0.5,
+                            colour = "black"),
+  # same for ticks
+  axis.title = element_text(size = 10),
+  # and for axis titles
+  panel.grid.minor = element_blank(),
+  panel.background = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_rect(
+    colour = "black", fill = NA, size = 0.5)
+)
 
 #calculate outliers
 
 is_outlier <- function(x) {
-  return(x < quantile(x, 0.25,na.rm=TRUE) - 1.5 * IQR(x,na.rm=TRUE) | x > quantile(x, 0.75,na.rm=TRUE) + 1.5 * IQR(x,na.rm=TRUE))
+  return(
+    x < quantile(x, 0.25, na.rm = TRUE) - 1.5 * IQR(x, na.rm = TRUE) |
+      x > quantile(x, 0.75, na.rm = TRUE) + 1.5 * IQR(x, na.rm = TRUE)
+  )
 }
 
 ```
@@ -99,8 +110,6 @@ is_outlier <- function(x) {
 ```{r test, echo=FALSE,eval=FALSE}
 
 ```
-
-[@field2012]
 
 ```{r stats, echo=FALSE}
 
