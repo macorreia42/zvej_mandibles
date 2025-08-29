@@ -71,10 +71,6 @@ load_or_install("SlicerMorphR", github = "SlicerMorph/SlicerMorphR")
 
 ```
 
-```{r variables, echo=FALSE, include=FALSE}
-test <-read.markups.json("ILH_Zvejnieki_34.6.35_merged_miss.mrk.json")
-```
-
 ```{r functions, eval=FALSE,include=FALSE}
 #!setting decimals
 fmt_decimals <- function(decimals = 0) {
@@ -107,9 +103,29 @@ is_outlier <- function(x) {
 
 ```
 
-```{r test, echo=FALSE,eval=FALSE}
+```{r variables, eval=FALSE, include=FALSE}
+# OSF project + component IDs
+proj_node <- osf_retrieve_node("vkat9") # main project
+raw_comp <- osf_retrieve_node("kwafd") # Raw Data component
+derived_comp <- osf_retrieve_node("9fnsp") # Derived Data component
+
+# Local save path (your GitHub project directory)
+local_out <- file.path(
+  "C:/Users/corre/Documents/GitHub/zvej_mandibles",
+  "landmark_array.RDS"
+)
+
+# List and download raw JSONs
+raw_files <- osf_ls_files(raw_comp) %>%
+  filter(str_detect(name, "\\.json$")) # keep only JSON
+#test <- read.markups.json("ILH_Zvejnieki_34.6.35_merged_miss.mrk.json")
+```
+
+```{r tidy, echo=FALSE,eval=FALSE}
 
 ```
+
+TODO: add an **OSF download step for reviewers**, so that when they run the Rmd they can skip the local GitHub file and pull the tidy `.RDS` directly from Derived Data
 
 ```{r stats, echo=FALSE}
 
