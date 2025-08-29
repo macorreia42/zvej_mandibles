@@ -1,7 +1,9 @@
+.Renviron
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
+
 # Untracked files
 images/*.svg
 images/*.tiff
