@@ -61,12 +61,20 @@ load_or_install <- function(pkg, github = NULL) {
 
 ```{r packages, echo=FALSE,include=FALSE}
 # CRAN packages
-cran_pkgs <- c("tidyverse", "styler", "geomorph", "osfr")
+cran_pkgs <- c(
+  "tidyverse", #everyday data analyses
+  "styler", #source code formatter
+  "arrow", #cross-language development platform to export .parquet
+  "usethis", #automates repetitive tasks that arise during project setup
+   "osfr", #interface for OSF
+  "geomorph" #geometric morphometrics
+  )
 
 purrr::walk(cran_pkgs, load_or_install)
 
 # GitHub packages (supply the repo as github = "user/repo")
 load_or_install("SlicerMorphR", github = "SlicerMorph/SlicerMorphR")
+#import SlicerMorph dataset into R
 
 
 ```
@@ -93,7 +101,6 @@ my_theme <- theme(
 )
 
 #calculate outliers
-
 is_outlier <- function(x) {
   return(
     x < quantile(x, 0.25, na.rm = TRUE) - 1.5 * IQR(x, na.rm = TRUE) |
@@ -103,22 +110,177 @@ is_outlier <- function(x) {
 
 ```
 
-```{r variables, eval=FALSE, include=FALSE}
-# OSF project + component IDs
-proj_node <- osf_retrieve_node("vkat9") # main project
-raw_comp <- osf_retrieve_node("kwafd") # Raw Data component
-derived_comp <- osf_retrieve_node("9fnsp") # Derived Data component
+```{r variables, echo=FALSE, include=FALSE}
 
-# Local save path (your GitHub project directory)
-local_out <- file.path(
-  "C:/Users/corre/Documents/GitHub/zvej_mandibles",
-  "landmark_array.RDS"
-)
+# ------------------------------------------------------
+# CONFIGURATION
+# ------------------------------------------------------
+proj_node     <- osf_retrieve_node("vkat9")   # main project
+raw_comp      <- osf_retrieve_node("kwafd")   # Raw Data component
+derived_comp  <- osf_retrieve_node("9fnsp")   # Derived Data component
 
-# List and download raw JSONs
-raw_files <- osf_ls_files(raw_comp) %>%
-  filter(str_detect(name, "\\.json$")) # keep only JSON
-#test <- read.markups.json("ILH_Zvejnieki_34.6.35_merged_miss.mrk.json")
+raw_dir <- "data/raw"            # raw JSONs folder
+derived_dir <- "data/derived"    # derived outputs folder
+
+usethis::use_directory(raw_dir)      # ensure folder exists
+usethis::use_directory(derived_dir)
+
+rds_path     <- file.path(derived_dir, "landmarks_array.rds")
+csv_path     <- file.path(derived_dir, "landmarks_wide.csv")
+parquet_path <- file.path(derived_dir, "landmarks_wide.parquet")
+
+# ------------------------------------------------------
+# DUAL-MODE LOGIC
+# ------------------------------------------------------
+if (nzchar(Sys.getenv("OSF_PAT"))) {
+  
+  # --- CASE A: PAT detected ---
+  message("✅ PAT detected → processing raw JSON files from OSF")
+
+  # Download JSONs into raw_dir
+  json_files <- osf_retrieve_node(raw_comp) |>
+  osf_ls_files() |>
+  dplyr::filter(str_detect(name, "\\.json$"))
+  osf_download(json_files, path = raw_dir, conflicts = "overwrite")
+  
+  # List all JSON files in raw_dir
+json_files_paths <- list.files("data/raw", full.names = TRUE)
+
+# Read JSONs and convert to numeric matrices, preserving rownames
+landmark_list <- purrr::map(json_files_paths, function(f) {
+  mat <- SlicerMorphR::read.markups.json(f)
+  mat <- apply(mat, 2, as.numeric) # convert columns to numeric
+  rownames(mat) <- rownames(SlicerMorphR::read.markups.json(f))
+  mat
+}) |> set_names(basename(json_files_paths))
+
+
+# Build 3D array
+p <- nrow(landmark_list[[1]])
+k <- ncol(landmark_list[[1]])
+N <- length(landmark_list)
+array3d <- array(NA_real_, dim = c(p, k, N),
+                 dimnames = list(rownames(landmark_list[[1]]),
+                                 colnames(landmark_list[[1]]),
+                                 names(landmark_list)))
+
+# Fill the array slice by slice
+for (i in seq_along(landmark_list)) {
+  array3d[,,i] <- landmark_list[[i]]
+}
+
+  
+  # Build 3D array: landmarks × XYZ × specimens
+  p <- length(all_landmarks)
+  k <- ncol(landmark_list[[1]])
+  N <- length(landmark_list)
+  array3d <- array(NA_real_, dim = c(p, k, N),
+                   dimnames = list(all_landmarks, 
+                                   colnames(landmark_list[[1]]), 
+                                   names(landmark_list)))
+  
+  # Fill array slice by slice
+  purrr::imap(landmark_list, ~ array3d[,,.y] <<- as.matrix(.x))
+  
+  # Create wide table for sharing
+  df_wide <- purrr::imap_dfc(landmark_list, function(df, specimen) {
+    df |> rowid_to_column("landmark") |>
+      pivot_longer(X:Z, names_to = "axis", values_to = "value") |>
+      unite("lm_axis", landmark, axis) |>
+      pivot_wider(names_from = lm_axis, values_from = value) |>
+      mutate(specimen = specimen)
+  }) |> relocate(specimen)
+  
+  # Save outputs
+  saveRDS(array3d, rds_path)
+  write_csv(df_wide, csv_path)
+  write_parquet(df_wide, parquet_path)
+  
+  # Optional upload to Derived Data
+  tryCatch({
+    osf_retrieve_node(derived_comp) |> osf_upload(path = derived_dir, conflicts = "overwrite")
+  }, error = function(e){message("⚠️ Upload error: ", conditionMessage(e))})
+  
+} else {
+  
+  # --- CASE B: No PAT (reviewers) ---
+  message("⚠️ No PAT → downloading derived CSV/Parquet from OSF")
+  
+  derived_files <- osf_retrieve_node(derived_comp) |>
+    osf_ls_files() |>
+    filter(name %in% c("landmarks_wide.csv","landmarks_wide.parquet")) |>
+    osf_download(path = derived_dir, conflicts = "overwrite")
+  
+  message("✅ Downloaded: ", paste(basename(derived_files), collapse = ", "))
+  
+  # Load CSV or Parquet
+  df_wide <- read_csv(csv_path)
+  
+  # Convert wide table back to 3D array using arrayspecs()
+  specimen_ids <- df_wide$specimen
+  landmark_cols <- names(df_wide)[-1]  # drop specimen column
+  k <- 3
+  p <- length(landmark_cols) / k
+  n <- nrow(df_wide)
+  
+  array3d <- arrayspecs(as.matrix(df_wide[,-1]), p = p, k = k)
+  dimnames(array3d)[[3]] <- specimen_ids
+  
+  message("ℹ️ 3D array reconstructed from derived CSV for reviewers")
+}
+
+```
+
+```{r}
+
+# ---- Dual-mode data retrieval ----
+# This retrieves landmark data either:
+# (A) from OSF raw JSON files (requires PAT), or
+# (B) from derived dataset (.csv or .parquet) if no PAT is set.
+
+if (nzchar(Sys.getenv("OSF_PAT"))) {
+  message("🔑 Using OSF PAT: downloading raw JSON landmark files...")
+
+  # 1. Retrieve and filter JSONs
+  json_files <- osf_retrieve_node(raw_comp) |>
+    osf_ls_files() |>
+    dplyr::filter(str_detect(name, "\\.json$")) |>
+    osf_download(path = "data/raw", conflicts = "overwrite")
+
+  # 2. Parse JSONs into list of landmark matrices
+  landmark_list <- map(json_files$local_path, SlicerMorphR::read.markups.json)
+
+  # 3. Convert to 3D array (p × 3 × n)
+  array3d <- arrayspecs(do.call(rbind, landmark_list),
+                        p = nrow(landmark_list[[1]]),
+                        k = 3)
+
+} else {
+  message("🟢 No OSF PAT detected: using derived dataset...")
+
+  # 1. Retrieve derived files
+  derived_file <- osf_retrieve_node(derived_comp) |>
+    osf_ls_files() |>
+    dplyr::filter(str_detect(name, "\\.(csv|parquet)$")) |>
+    osf_download(path = "data/derived", conflicts = "overwrite")
+
+  # 2. Load depending on extension
+  if (str_detect(derived_file$name, "\\.csv$")) {
+    df <- read.csv(derived_file$local_path)
+  } else {
+    library(arrow)
+    df <- read_parquet(derived_file$local_path)
+  }
+
+  # 3. Convert to 3D array
+  array3d <- arrayspecs(as.matrix(df),
+                        p = length(unique(df$landmark)),
+                        k = 3)
+}
+
+# Sanity check
+print(dim(array3d))  # should be p × 3 × n
+
 ```
 
 ```{r tidy, echo=FALSE,eval=FALSE}

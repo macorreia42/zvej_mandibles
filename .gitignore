@@ -8,3 +8,4 @@
 images/*.svg
 images/*.tiff
 *.pdf
+*.json
