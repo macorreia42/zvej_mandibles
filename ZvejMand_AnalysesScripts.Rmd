@@ -23,7 +23,7 @@ csl: apa-single-spaced
 
 This file documents the geometric morphometrics of Zvejnieki mandibles. 3D landmarks were collected using 3DSlicer and statistical analyses used geomorph and SlicerMorph/SllicerMorphR [@adams2025; @rolfe2021].
 
-```{r setup, echo=FALSE,include=FALSE}
+```{r setup, echo=FALSE}
 #this makes images save in folder in directory
 knitr::opts_chunk$set(
   echo = TRUE, #shows code
@@ -59,7 +59,7 @@ load_or_install <- function(pkg, github = NULL) {
 
 ```
 
-```{r packages, echo=FALSE,include=FALSE}
+```{r packages, echo=FALSE}
 # CRAN packages
 cran_pkgs <- c(
   "tidyverse", #everyday data analyses
@@ -79,7 +79,7 @@ load_or_install("SlicerMorphR", github = "SlicerMorph/SlicerMorphR")
 
 ```
 
-```{r functions, eval=FALSE,include=FALSE}
+```{r functions, echo = FALSE}
 #!setting decimals
 fmt_decimals <- function(decimals = 0) {
   function(x) format(x, nsmall = decimals, scientific = FALSE)
@@ -110,7 +110,7 @@ is_outlier <- function(x) {
 
 ```
 
-```{r variables, echo=FALSE, include=FALSE}
+```{r variables, echo = FALSE}
 # --- Dual-mode OSF pipeline for landmarks ---
 # Project vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses: a75wu
 
@@ -215,11 +215,15 @@ if (nzchar(Sys.getenv("OSF_PAT"))) {
 
 ```
 
-TODO: figure out missinglandmarks() TRY to add more jsonsstr
+TODO:
 
-```{r estimate, echo=FALSE,eval=FALSE}
+```{r estimate, echo = FALSE}
 #estimate.missing() WARNING: n > k
 estimate <- estimate.missing(array3d, method = "TPS")
+```
+
+```{r gpa, echo = FALSE}
+
 ```
 
 ```{r stats, echo=FALSE}
