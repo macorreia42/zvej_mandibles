@@ -125,7 +125,6 @@ if (nzchar(Sys.getenv("OSF_PAT"))) {
   message("Authenticated with OSF PAT → building array from JSON")
 
   # --- PAT branch ---
-
   # 1) Retrieve JSON files from Raw Data component
   json_files <- osf_retrieve_node("kwafd") |>
     osf_ls_files() |>
@@ -146,7 +145,8 @@ if (nzchar(Sys.getenv("OSF_PAT"))) {
     if (is.null(colnames(m))) colnames(m) <- c("X", "Y", "Z")
     m
   }
-  landmark_list <- map(json_paths, read_lmk_matrix) |> set_names(specimen_ids)
+  landmark_list <- map(json_paths, read_lmk_matrix) |>
+    set_names(specimen_ids)
 
   # 5) Build array3d
   p <- nrow(landmark_list[[1]])
@@ -213,8 +213,9 @@ if (nzchar(Sys.getenv("OSF_PAT"))) {
   dimnames(array3d)[[3]] <- df2d$specimen # specimen names
 }
 
-
 ```
+
+TODO: figure out missinglandmarks()
 
 ```{r tidy, echo=FALSE,eval=FALSE}
 
