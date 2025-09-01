@@ -29,17 +29,72 @@ This file documents the geometric morphometrics of Zvejnieki mandibles. 3D landm
 
 
 
+Fragmented specimens were virtually pieced together in 3D slicer using the Fiducial Registration Wizard [@godinho2020]. Then, in the Markups Module of 3DSlicer, coordinates were extracted from a total of 21 anatomical landmarks from the most complete hemi-mandible of each specimen to capture mandibular morphology [@godinho2022]. The use of left hemimandibles was favoured, but because that was also the favoured side when sampling, the sample ended up even.
+
+# Preparing Landmark Data for *geomorph*
+
+We implemented two parallel workflows for preparing landmark data into the format required by the `geomorph` package. The goal in both cases is to produce a 3D numeric array with dimensions *(p landmarks × k coordinates × n specimens)*, suitable for downstream analyses.
+
+1.  **From `.mark.json` files**\
+    Individual specimen landmark files produced by PAT were parsed from JSON into matrices of coordinates. These were then stacked into a 3D array, with each slice representing one specimen.
+
+2.  **From `.csv` files**\
+    Landmark coordinates saved as CSVs were read into matrices and similarly stacked into a 3D array with the same dimensional structure.
+
+Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1].
+
+[^1]: in the package `osfr`, PATs are required to upload files, create projects/components, access information about your private projects, or download files in your private projects. PATs are not required for accessing information about public projects or downloading public files, but authentication with a PAT will increase the rate limit on the API
+
 <div data-pagedtable="false">
   <script data-pagedtable-source type="application/json">
 {"columns":[{"label":["name"],"name":[1],"type":["chr"],"align":["left"]},{"label":["id"],"name":[2],"type":["chr"],"align":["left"]},{"label":["meta"],"name":[3],"type":["list"],"align":["right"]}],"data":[{"1":"landmarks.parquet","2":"68b4a0ea3560139ce496af8a","3":"<named list [3]>"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
   </script>
 </div>
 
-TODO:
+```
+## [1] TRUE
+```
+
+```
+## [1] TRUE
+```
+
+```
+## [1] 21  3 10
+```
+
+```
+##  [1] "ILH_Zvejnieki_34.115.228.mrk"     "ILH_Zvejnieki_34.118.234.mrk"    
+##  [3] "ILH_Zvejnieki_34.22.63_miss.mrk"  "ILH_Zvejnieki_34.3.16.mrk"       
+##  [5] "ILH_Zvejnieki_34.43.112_miss.mrk" "ILH_Zvejnieki_34.46.115.mrk"     
+##  [7] "ILH_Zvejnieki_34.58.134.mrk"      "ILH_Zvejnieki_34.66.153.mrk"     
+##  [9] "ILH_Zvejnieki_34.74.164.mrk"      "ILH_Zvejnieki_34.85.181.mrk"
+```
+
+```
+## [1] TRUE
+```
+
+Some safety checks were also included to ensure the produced dataset adheres to `geomorph` criteria. When specimens were incomplete, the location of the missing LMs was estimated using the thin plate spline (TPS) function (`estimate.missing()`) of the `geomorph` package.
 
 
 
 
+```
+## 
+## Performing GPA
+##   |                                                                              |                                                                      |   0%  |                                                                              |==================                                                    |  25%  |                                                                              |===================================                                   |  50%  |                                                                              |======================================================================| 100%
+## 
+## Making projections... Finished!
+```
+
+```
+## Authenticated with OSF PAT
+## Uploading 6 file(s) to OSF (overwrite on conflict)...
+## Upload complete to OSF node 9fnsp.
+```
+
+TODO: upload to SlicerMorph again to see errors in placing landmarks and see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`
 
 
 

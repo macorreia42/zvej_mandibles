@@ -2873,12 +2873,64 @@ transition: the Zvejnieki case study</h1>
 <p>This file documents the geometric morphometrics of Zvejnieki
 mandibles. 3D landmarks were collected using 3DSlicer and statistical
 analyses used geomorph and SlicerMorph/SllicerMorphR <span class="citation">(<a href="#ref-adams2025">Adams et al., 2025</a>; <a href="#ref-rolfe2021">Rolfe et al., 2021</a>)</span>.</p>
+<p>Fragmented specimens were virtually pieced together in 3D slicer
+using the Fiducial Registration Wizard <span class="citation">(<a href="#ref-godinho2020">Godinho &amp; Gonçalves, 2020</a>)</span>. Then,
+in the Markups Module of 3DSlicer, coordinates were extracted from a
+total of 21 anatomical landmarks from the most complete hemi-mandible of
+each specimen to capture mandibular morphology <span class="citation">(<a href="#ref-godinho2022">Godinho et al.,
+2022</a>)</span>. The use of left hemimandibles was favoured, but
+because that was also the favoured side when sampling, the sample ended
+up even.</p>
+<div id="preparing-landmark-data-for-geomorph" class="section level1">
+<h1>Preparing Landmark Data for <em>geomorph</em></h1>
+<p>We implemented two parallel workflows for preparing landmark data
+into the format required by the <code>geomorph</code> package. The goal
+in both cases is to produce a 3D numeric array with dimensions <em>(p
+landmarks × k coordinates × n specimens)</em>, suitable for downstream
+analyses.</p>
+<ol style="list-style-type: decimal">
+<li><p><strong>From <code>.mark.json</code> files</strong><br />
+Individual specimen landmark files produced by PAT were parsed from JSON
+into matrices of coordinates. These were then stacked into a 3D array,
+with each slice representing one specimen.</p></li>
+<li><p><strong>From <code>.csv</code> files</strong><br />
+Landmark coordinates saved as CSVs were read into matrices and similarly
+stacked into a 3D array with the same dimensional structure.</p></li>
+</ol>
+<p>Both approaches produce the object <code>array3d</code> for use in
+<code>geomorph</code>, and use depends on whether user has access to raw
+(<code>.mark.json</code>) or derived (<code>.csv</code>) data on <a href="https://osf.io/vkat9/">OSF</a> <span class="citation">(<a href="#ref-foster2017">Foster &amp; Deardorff, 2017</a>)</span><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
 <div data-pagedtable="false">
 <script data-pagedtable-source type="application/json">
 {"columns":[{"label":["name"],"name":[1],"type":["chr"],"align":["left"]},{"label":["id"],"name":[2],"type":["chr"],"align":["left"]},{"label":["meta"],"name":[3],"type":["list"],"align":["right"]}],"data":[{"1":"landmarks.parquet","2":"68b4a0ea3560139ce496af8a","3":"<named list [3]>"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
   </script>
 </div>
-<p>TODO:</p>
+<pre><code>## [1] TRUE</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<pre><code>## [1] 21  3 10</code></pre>
+<pre><code>##  [1] &quot;ILH_Zvejnieki_34.115.228.mrk&quot;     &quot;ILH_Zvejnieki_34.118.234.mrk&quot;    
+##  [3] &quot;ILH_Zvejnieki_34.22.63_miss.mrk&quot;  &quot;ILH_Zvejnieki_34.3.16.mrk&quot;       
+##  [5] &quot;ILH_Zvejnieki_34.43.112_miss.mrk&quot; &quot;ILH_Zvejnieki_34.46.115.mrk&quot;     
+##  [7] &quot;ILH_Zvejnieki_34.58.134.mrk&quot;      &quot;ILH_Zvejnieki_34.66.153.mrk&quot;     
+##  [9] &quot;ILH_Zvejnieki_34.74.164.mrk&quot;      &quot;ILH_Zvejnieki_34.85.181.mrk&quot;</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<p>Some safety checks were also included to ensure the produced dataset
+adheres to <code>geomorph</code> criteria. When specimens were
+incomplete, the location of the missing LMs was estimated using the thin
+plate spline (TPS) function (<code>estimate.missing()</code>) of the
+<code>geomorph</code> package.</p>
+<pre><code>## 
+## Performing GPA
+##   |                                                                              |                                                                      |   0%  |                                                                              |==================                                                    |  25%  |                                                                              |===================================                                   |  50%  |                                                                              |======================================================================| 100%
+## 
+## Making projections... Finished!</code></pre>
+<pre><code>## Authenticated with OSF PAT
+## Uploading 6 file(s) to OSF (overwrite on conflict)...
+## Upload complete to OSF node 9fnsp.</code></pre>
+<p>TODO: upload to SlicerMorph again to see errors in placing landmarks
+and see if I can see shapes (video); check out on paper stuff to produce
+graphs on ggplot using <code>make_ggplot</code></p>
+</div>
 <div id="references" class="section level1">
 <h1>References</h1>
 <div id="refs" class="references csl-bib-body hanging-indent" entry-spacing="0">
@@ -2886,6 +2938,23 @@ analyses used geomorph and SlicerMorph/SllicerMorphR <span class="citation">(<a 
 Adams, D., Collyer, M., Kaliontzopoulou, A., &amp; Baken, E. (2025).
 <em>Geomorph: Geometric morphometric analyses of 2D and 3D landmark
 data</em>. <a href="https://cran.r-project.org/web/packages/geomorph/index.html">https://cran.r-project.org/web/packages/geomorph/index.html</a>
+</div>
+<div id="ref-foster2017" class="csl-entry">
+Foster, E. D., &amp; Deardorff, A. (2017). Open science framework (OSF).
+<em>Journal of the Medical Library Association</em>, <em>105</em>(2),
+203–206. <a href="https://doi.org/10.5195/jmla.2017.88">https://doi.org/10.5195/jmla.2017.88</a>
+</div>
+<div id="ref-godinho2020" class="csl-entry">
+Godinho, R. M., &amp; Gonçalves, C. (2020). <em>Arqueologia em Portugal
+| 2020 - Estado da Questão</em> (J. M. Arnaud, C. Neves, &amp; A.
+Martins, Eds.; pp. 311–323). Associação dos Arqueólogos Portugueses
+&amp; CITCEM. <a href="https://doi.org/10.21747/978-989-8970-25-1/arqa23">https://doi.org/10.21747/978-989-8970-25-1/arqa23</a>
+</div>
+<div id="ref-godinho2022" class="csl-entry">
+Godinho, R. M., Umbelino, C., &amp; Gonçalves, C. (2022). Mesolithic and
+chalcolithic mandibular morphology: using geometric morphometrics to
+reconstruct incomplete specimens and analyse morphology. <em>Open
+Archaeology</em>, <em>8</em>(1), 536–549. <a href="https://doi.org/10.1515/opar-2022-0247">https://doi.org/10.1515/opar-2022-0247</a>
 </div>
 <div id="ref-rolfe2021" class="csl-entry">
 Rolfe, S., Pieper, S., Porto, A., Diamond, K., Winchester, J., Shan, S.,
@@ -2939,6 +3008,17 @@ analyse 3D morphology. <em>Methods in Ecology and Evolution</em>,
 ## [53] evaluate_1.0.5     knitr_1.50         urltools_1.7.3.1   rlang_1.1.6       
 ## [57] Rcpp_1.1.0         glue_1.8.0         httpcode_0.3.0     vroom_1.6.5       
 ## [61] rstudioapi_0.17.1  R6_2.6.1           fs_1.6.6</code></pre>
+</div>
+<div class="footnotes footnotes-end-of-document">
+<hr />
+<ol>
+<li id="fn1"><p>in the package <code>osfr</code>, PATs are required to
+upload files, create projects/components, access information about your
+private projects, or download files in your private projects. PATs are
+not required for accessing information about public projects or
+downloading public files, but authentication with a PAT will increase
+the rate limit on the API<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+</ol>
 </div>
 
 
