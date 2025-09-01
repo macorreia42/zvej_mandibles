@@ -1,7 +1,7 @@
 ---
 title: "Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study"
 author: "Maria Ana Correia"
-date: '31/08/2025'
+date: '01/09/2025'
 subtitle: "Analyses Scripts"
 output:
   html_document:
@@ -31,9 +31,9 @@ This file documents the geometric morphometrics of Zvejnieki mandibles. 3D landm
 
 
 
+TODO: figure out missinglandmarks() TRY to add more jsonsstr
 
 
-TODO: add an **OSF download step for reviewers**, so that when they run the Rmd they can skip the local GitHub file and pull the tidy `.RDS` directly from Derived Data
 
 
 

@@ -184,8 +184,8 @@ if (nzchar(Sys.getenv("OSF_PAT"))) {
   write_csv(df2d, tmp_csv)
   write_parquet(df2d, tmp_parquet)
 
-  osf_upload(derived_node, path = tmp_csv, conflicts = "error")
-  osf_upload(derived_node, path = tmp_parquet, conflicts = "error")
+  osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
+  osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
 } else {
   # --- No PAT branch ---
   message("No OSF PAT → rebuilding array from Derived Data CSV")
@@ -215,10 +215,11 @@ if (nzchar(Sys.getenv("OSF_PAT"))) {
 
 ```
 
-TODO: figure out missinglandmarks()
+TODO: figure out missinglandmarks() TRY to add more jsonsstr
 
-```{r tidy, echo=FALSE,eval=FALSE}
-
+```{r estimate, echo=FALSE,eval=FALSE}
+#estimate.missing() WARNING: n > k
+estimate <- estimate.missing(array3d, method = "TPS")
 ```
 
 ```{r stats, echo=FALSE}
