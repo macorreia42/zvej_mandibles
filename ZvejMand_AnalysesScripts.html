@@ -2909,6 +2909,7 @@ load_or_install &lt;- function(pkg, github = NULL) {
 cran_pkgs &lt;- c(
   &quot;tidyverse&quot;, #everyday data analyses
   &quot;styler&quot;, #source code formatter
+  &quot;formatR&quot;, #format output
   &quot;arrow&quot;, #cross-language development platform to export .parquet
   &quot;usethis&quot;, #automates repetitive tasks that arise during project setup
    &quot;osfr&quot;, #interface for OSF
@@ -2976,8 +2977,9 @@ stacked into a 3D array with the same dimensional structure.</p></li>
 (<code>.mark.json</code>) or derived (<code>.csv</code>) data on <a href="https://osf.io/vkat9/">OSF</a> <span class="citation">(<a href="#ref-foster2017">Foster &amp; Deardorff, 2017</a>)</span><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>. Some
 safety checks were also included to ensure the produced dataset adheres
 to <code>geomorph</code> criteria.</p>
-<pre class="r"><code># --- Dual-mode OSF pipeline for landmarks ---
-# Project vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses: a75wu
+<pre class="r"><code># --- Dual-mode OSF pipeline for landmarks --- Project
+# vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses:
+# a75wu
 
 # --- Directories ---
 raw_dir &lt;- &quot;data/raw&quot;
@@ -2985,105 +2987,111 @@ derived_dir &lt;- &quot;data/derived&quot;
 usethis::use_directory(raw_dir)
 usethis::use_directory(derived_dir)
 
-# --- Check PAT ---
-if (nzchar(Sys.getenv(&quot;OSF_PAT&quot;))) {
-  message(&quot;Authenticated with OSF PAT → building array from JSON&quot;)
+derived_node &lt;- osfr::osf_retrieve_node(&quot;9fnsp&quot;)
+raw_node &lt;- osfr::osf_retrieve_node(&quot;kwafd&quot;)
 
-  # --- PAT branch ---
-  # 1) Retrieve JSON files from Raw Data component
-  json_files &lt;- osf_retrieve_node(&quot;kwafd&quot;) |&gt;
-    osf_ls_files() |&gt;
-    dplyr::filter(str_detect(name, &quot;\\.json$&quot;))
+# 5) Gate OSF uploads so they only run on my machine (no
+# interactive() so it works in Rmd)
+allow_flag &lt;- tolower(Sys.getenv(&quot;ALLOW_OSF_UPLOAD&quot;))
+allow_upload &lt;- nzchar(Sys.getenv(&quot;OSF_PAT&quot;)) &amp;&amp; allow_flag %in%
+    c(&quot;1&quot;, &quot;true&quot;, &quot;yes&quot;)
 
-  # 2) Download JSON files to raw_dir
-  osf_download(json_files, path = raw_dir, conflicts = &quot;overwrite&quot;)
+if (allow_upload) {
+    cat(&quot;Authenticated with OSF PAT → building array from JSON\n&quot;)
+    osfr::osf_auth(Sys.getenv(&quot;OSF_PAT&quot;))
 
-  # 3) Specimen IDs from filenames
-  json_paths &lt;- list.files(raw_dir, pattern = &quot;\\.json$&quot;, full.names = TRUE)
-  specimen_ids &lt;- tools::file_path_sans_ext(basename(json_paths))
+    # 1) Retrieve JSON files from Raw Data component
+    json_files &lt;- raw_node |&gt;
+        osfr::osf_ls_files() |&gt;
+        dplyr::filter(grepl(&quot;\\.json$&quot;, name, ignore.case = TRUE))
 
-  # 4) Read JSON into numeric matrices
-  read_lmk_matrix &lt;- function(path) {
-    m &lt;- SlicerMorphR::read.markups.json(path)
-    m &lt;- as.matrix(m)
-    m &lt;- apply(m, 2, as.numeric)
-    if (is.null(colnames(m))) colnames(m) &lt;- c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;)
-    m
-  }
-  landmark_list &lt;- map(json_paths, read_lmk_matrix) |&gt;
-    set_names(specimen_ids)
+    # 2) Download JSON files to raw_dir
+    osfr::osf_download(json_files, path = raw_dir, conflicts = &quot;overwrite&quot;)
 
-  # 5) Build array3d
-  p &lt;- nrow(landmark_list[[1]])
-  k &lt;- 3
-  n &lt;- length(landmark_list)
+    # 3) Specimen IDs from filenames
+    json_paths &lt;- list.files(raw_dir, pattern = &quot;\\.json$&quot;, full.names = TRUE)
+    specimen_ids &lt;- tools::file_path_sans_ext(basename(json_paths))
 
-  array3d &lt;- array(
-    NA_real_,
-    dim = c(p, k, n),
-    dimnames = list(
-      landmark = seq_len(p),
-      coord    = c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;),
-      specimen = names(landmark_list)
-    )
-  )
-  for (i in seq_along(landmark_list)) array3d[, , i] &lt;- landmark_list[[i]]
-  storage.mode(array3d) &lt;- &quot;double&quot;
+    # 4) Read JSON into numeric matrices
+    read_lmk_matrix &lt;- function(path) {
+        m &lt;- SlicerMorphR::read.markups.json(path)
+        m &lt;- as.matrix(m)
+        m &lt;- apply(m, 2, as.numeric)
+        if (is.null(colnames(m)))
+            colnames(m) &lt;- c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;)
+        m
+    }
+    landmark_list &lt;- purrr::map(json_paths, read_lmk_matrix) |&gt;
+        purrr::set_names(specimen_ids)
 
-  # 6) Save array3d locally as RDS
-  saveRDS(array3d, file.path(derived_dir, &quot;array3d.RDS&quot;))
+    # 5) Build array3d
+    p &lt;- nrow(landmark_list[[1]])
+    k &lt;- 3
+    n &lt;- length(landmark_list)
 
-  # 7) Create CSV + Parquet from array3d
-  df2d &lt;- data.frame(specimen = dimnames(array3d)$specimen)
-  for (i in 1:p) {
-    df2d[[paste0(&quot;X&quot;, i)]] &lt;- array3d[i, 1, ]
-    df2d[[paste0(&quot;Y&quot;, i)]] &lt;- array3d[i, 2, ]
-    df2d[[paste0(&quot;Z&quot;, i)]] &lt;- array3d[i, 3, ]
-  }
+    array3d &lt;- array(NA_real_, dim = c(p, k, n), dimnames = list(landmark = seq_len(p),
+        coord = c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;), specimen = names(landmark_list)))
+    for (i in seq_along(landmark_list)) array3d[, , i] &lt;- landmark_list[[i]]
+    storage.mode(array3d) &lt;- &quot;double&quot;
 
-  # 8) Upload CSV + Parquet to OSF Derived Data
-  derived_node &lt;- osf_retrieve_node(&quot;9fnsp&quot;)
-  tmp_csv &lt;- file.path(tempdir(), &quot;landmarks.csv&quot;)
-  tmp_parquet &lt;- file.path(tempdir(), &quot;landmarks.parquet&quot;)
+    # 6) Save array3d locally as RDS (only .RDS goes to
+    # derived_dir)
+    saveRDS(array3d, file.path(derived_dir, &quot;array3d.RDS&quot;))
 
-  write_csv(df2d, tmp_csv)
-  write_parquet(df2d, tmp_parquet)
+    # 7) Create CSV + Parquet from array3d in-memory, write
+    # to temp, upload to OSF, then remove temp files
+    df2d &lt;- data.frame(specimen = dimnames(array3d)$specimen,
+        stringsAsFactors = FALSE)
+    for (i in seq_len(p)) {
+        df2d[[paste0(&quot;X&quot;, i)]] &lt;- array3d[i, 1, ]
+        df2d[[paste0(&quot;Y&quot;, i)]] &lt;- array3d[i, 2, ]
+        df2d[[paste0(&quot;Z&quot;, i)]] &lt;- array3d[i, 3, ]
+    }
 
-  osf_upload(derived_node, path = tmp_csv, conflicts = &quot;overwrite&quot;)
-  osf_upload(derived_node, path = tmp_parquet, conflicts = &quot;overwrite&quot;)
+    tmp_csv &lt;- file.path(tempdir(), &quot;landmarks.csv&quot;)
+    tmp_parquet &lt;- file.path(tempdir(), &quot;landmarks.parquet&quot;)
+
+    readr::write_csv(df2d, tmp_csv)
+    arrow::write_parquet(df2d, tmp_parquet)
+
+    osfr::osf_upload(derived_node, path = tmp_csv, conflicts = &quot;overwrite&quot;)
+    osfr::osf_upload(derived_node, path = tmp_parquet, conflicts = &quot;overwrite&quot;)
+
+    unlink(c(tmp_csv, tmp_parquet), force = TRUE)
 } else {
-  # --- No PAT branch ---
-  message(&quot;No OSF PAT → rebuilding array from Derived Data CSV&quot;)
+    # --- No PAT branch ---
+    cat(&quot;No OSF PAT → rebuilding array from Derived Data CSV (using temp file, not derived_dir)\n&quot;)
 
-  # 1) Download CSV from Derived Data
-  csv_file &lt;- derived_node |&gt;
-    osf_ls_files() |&gt;
-    dplyr::filter(name == &quot;landmarks.csv&quot;)
+    # 1) Locate CSV on OSF (do not save locally in project)
+    csv_file &lt;- derived_node |&gt;
+        osfr::osf_ls_files() |&gt;
+        dplyr::filter(name == &quot;landmarks.csv&quot;)
 
-  osf_download(csv_file, path = derived_dir, conflicts = &quot;error&quot;)
+    # 2) Download CSV to tempdir and read from there
+    dl &lt;- osfr::osf_download(csv_file, path = tempdir(), conflicts = &quot;overwrite&quot;)
+    csv_path &lt;- dl$local_path
+    df2d &lt;- readr::read_csv(csv_path, show_col_types = FALSE)
 
-  # 2) Rebuild array3d from CSV
-  df2d &lt;- read_csv(file.path(derived_dir, &quot;landmarks.csv&quot;))
-  df_matrix &lt;- as.matrix(df2d %&gt;% select(-specimen))
+    # 3) Rebuild array3d from CSV
+    df_matrix &lt;- as.matrix(dplyr::select(df2d, -specimen))
 
-  p &lt;- ncol(df_matrix) / 3
-  k &lt;- 3
-  n &lt;- nrow(df_matrix)
+    p &lt;- ncol(df_matrix)/3
+    k &lt;- 3
+    n &lt;- nrow(df_matrix)
 
-  array3d &lt;- geomorph::arrayspecs(df_matrix, p = p, k = k)
+    array3d &lt;- geomorph::arrayspecs(df_matrix, p = p, k = k)
 
-  # 3) Set dimnames identical to PAT branch
-  dimnames(array3d)[[1]] &lt;- seq_len(p) # landmarks
-  dimnames(array3d)[[2]] &lt;- c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;) # coords
-  dimnames(array3d)[[3]] &lt;- df2d$specimen # specimen names
+    # 4) Set dimnames identical to PAT branch
+    dimnames(array3d)[[1]] &lt;- seq_len(p)  # landmarks
+    dimnames(array3d)[[2]] &lt;- c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;)  # coords
+    dimnames(array3d)[[3]] &lt;- df2d$specimen  # specimen names
+
+    # 5) Save array3d locally as RDS (only .RDS goes to
+    # derived_dir)
+    saveRDS(array3d, file.path(derived_dir, &quot;array3d.RDS&quot;))
 }</code></pre>
-<div data-pagedtable="false">
-<script data-pagedtable-source type="application/json">
-{"columns":[{"label":["name"],"name":[1],"type":["chr"],"align":["left"]},{"label":["id"],"name":[2],"type":["chr"],"align":["left"]},{"label":["meta"],"name":[3],"type":["list"],"align":["right"]}],"data":[{"1":"landmarks.parquet","2":"68b4a0ea3560139ce496af8a","3":"<named list [3]>"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
-  </script>
-</div>
-<pre class="r"><code># --- Safety checks ---
-# Ensure array has correct structure
+<pre><code>## Authenticated with OSF PAT → building array from JSON</code></pre>
+<pre class="r"><code># --- Safety checks --- Ensure array has correct structure
 is.numeric(array3d)</code></pre>
 <pre><code>## [1] TRUE</code></pre>
 <pre class="r"><code>length(dim(array3d)) == 3</code></pre>
@@ -3097,16 +3105,18 @@ dimnames(array3d)[[3]]</code></pre>
 ##  [5] &quot;ILH_Zvejnieki_34.43.112_miss.mrk&quot; &quot;ILH_Zvejnieki_34.46.115.mrk&quot;     
 ##  [7] &quot;ILH_Zvejnieki_34.58.134.mrk&quot;      &quot;ILH_Zvejnieki_34.66.153.mrk&quot;     
 ##  [9] &quot;ILH_Zvejnieki_34.74.164.mrk&quot;      &quot;ILH_Zvejnieki_34.85.181.mrk&quot;</code></pre>
-<pre class="r"><code># Check requirement: number of specimens &gt; number of coordinates
+<pre class="r"><code># Check requirement: number of specimens &gt; number of
+# coordinates
 dim(array3d)[3] &gt; dim(array3d)[2]</code></pre>
 <pre><code>## [1] TRUE</code></pre>
 <p>When specimens were incomplete, the location of the missing LMs was
 estimated using the thin plate spline (TPS) function
 (<code>estimate.missing()</code>) of the <code>geomorph</code>
 package.</p>
-<pre class="r"><code>#estimate.missing() WARNING: n &gt; k
+<pre class="r"><code># estimate.missing() WARNING: n &gt; k
 estimateLMs &lt;- estimate.missing(array3d, method = &quot;TPS&quot;)</code></pre>
-<pre class="r"><code># 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
+<pre class="r"><code># 1) GPA with fixed landmarks (ProcD = TRUE to
+# compute/return Procrustes distances)
 gpa &lt;- geomorph::gpagen(A = estimateLMs, ProcD = TRUE)</code></pre>
 <pre><code>## 
 ## Performing GPA
@@ -3116,52 +3126,30 @@ gpa &lt;- geomorph::gpagen(A = estimateLMs, ProcD = TRUE)</code></pre>
 <pre class="r"><code># 2) PCA on aligned coordinates
 pca &lt;- geomorph::gm.prcomp(gpa$coords)
 
-# 3) Capture existing contents before Slicer export
-pre_export &lt;- dir(derived_dir, full.names = TRUE, all.files = FALSE)
+# 3) Export SlicerMorph bundle to derived_dir Note:
+# argument renamed to &#39;output_folder&#39; per your current
+# SlicerMorphR version
+SlicerMorphR::geomorph2slicermorph2(gpa = gpa, pca = pca, output.folder = derived_dir)
 
-# 4) Export SlicerMorph bundle to derived_dir
-# Note: argument renamed to &#39;output_folder&#39; per your current SlicerMorphR version
-SlicerMorphR::geomorph2slicermorph2(
-  gpa = gpa,
-  pca = pca,
-  output.folder = derived_dir
-)
+# 4) upload to OSF if my OSF_PAT is present
+if (allow_upload) {
+    cat(&quot;OSF PAT branch: uploading to OSF node 9fnsp\n&quot;)
 
-# 5) Determine which files/folders were newly created by the export
-post_export &lt;- dir(derived_dir, full.names = TRUE, all.files = FALSE)
-slicer_exports &lt;- setdiff(post_export, pre_export)
+    # Upload all non-RDS artifacts from derived_dir
+    # (recursively), overwrite on conflict
+    files_to_upload &lt;- list.files(derived_dir, recursive = TRUE,
+        full.names = TRUE, include.dirs = FALSE)
+    files_to_upload &lt;- files_to_upload[!grepl(&quot;\\.rds$&quot;, files_to_upload,
+        ignore.case = TRUE)]
 
-# 6) --- Check PAT ---
-if (nzchar(Sys.getenv(&quot;OSF_PAT&quot;))) {
-  cat(&quot;Authenticated with OSF PAT\n&quot;)
-
-  # Upload all non-RDS artifacts from derived_dir (recursively), overwriting on OSF
-  files_to_upload &lt;- list.files(
-    derived_dir,
-    recursive = TRUE,
-    full.names = TRUE,
-    include.dirs = FALSE
-  )
-  files_to_upload &lt;- files_to_upload[
-    !grepl(&quot;\\.rds$&quot;, files_to_upload, ignore.case = TRUE)
-  ]
-
-  if (length(files_to_upload) == 0) {
-    cat(&quot;No non-RDS files found to upload from derived_dir.\n&quot;)
-  } else {
-    cat(&quot;Uploading &quot;, length(files_to_upload), &quot; file(s) to OSF (overwrite on conflict)...\n&quot;, sep = &quot;&quot;)
     for (f in files_to_upload) {
-      osfr::osf_upload(derived_node, path = f, conflicts = &quot;overwrite&quot;)
+        osfr::osf_upload(derived_node, path = f, conflicts = &quot;overwrite&quot;)
     }
-    cat(&quot;Upload complete to OSF node 9fnsp.\n&quot;)
-  }
 } else {
-  # --- No PAT branch ---
-  cat(&quot;No OSF PAT. Outputs only saved locally in: &quot;, derived_dir, &quot;\n&quot;, sep = &quot;&quot;)
+    cat(&quot;No OSF PAT branch: saved outputs locally in: &quot;, derived_dir,
+        &quot;\n&quot;, sep = &quot;&quot;)
 }</code></pre>
-<pre><code>## Authenticated with OSF PAT
-## Uploading 6 file(s) to OSF (overwrite on conflict)...
-## Upload complete to OSF node 9fnsp.</code></pre>
+<pre><code>## OSF PAT branch: uploading to OSF node 9fnsp</code></pre>
 <p>TODO: upload to SlicerMorph again to see errors in placing landmarks
 and see if I can see shapes (video); check out on paper stuff to produce
 graphs on ggplot using <code>make_ggplot</code>; code not displaying on
@@ -3222,10 +3210,10 @@ analyse 3D morphology. <em>Methods in Ecology and Evolution</em>,
 ##  [1] SlicerMorphR_0.0.2.0000 jsonlite_2.0.0          geomorph_4.0.10        
 ##  [4] Matrix_1.7-3            rgl_1.3.24              RRPP_2.1.2             
 ##  [7] osfr_0.2.9              usethis_3.2.0           arrow_21.0.0.1         
-## [10] styler_1.10.3           lubridate_1.9.4         forcats_1.0.0          
-## [13] stringr_1.5.1           dplyr_1.1.4             purrr_1.1.0            
-## [16] readr_2.1.5             tidyr_1.3.1             tibble_3.3.0           
-## [19] ggplot2_3.5.2           tidyverse_2.0.0        
+## [10] formatR_1.14            styler_1.10.3           lubridate_1.9.4        
+## [13] forcats_1.0.0           stringr_1.5.1           dplyr_1.1.4            
+## [16] purrr_1.1.0             readr_2.1.5             tidyr_1.3.1            
+## [19] tibble_3.3.0            ggplot2_3.5.2           tidyverse_2.0.0        
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] gtable_0.3.6       xfun_0.53          bslib_0.9.0        htmlwidgets_1.6.4 

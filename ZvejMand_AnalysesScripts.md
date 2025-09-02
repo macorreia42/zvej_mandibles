@@ -65,6 +65,7 @@ load_or_install <- function(pkg, github = NULL) {
 cran_pkgs <- c(
   "tidyverse", #everyday data analyses
   "styler", #source code formatter
+  "formatR", #format output
   "arrow", #cross-language development platform to export .parquet
   "usethis", #automates repetitive tasks that arise during project setup
    "osfr", #interface for OSF
@@ -127,8 +128,9 @@ Both approaches produce the object `array3d` for use in `geomorph`, and use depe
 
 
 ``` r
-# --- Dual-mode OSF pipeline for landmarks ---
-# Project vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses: a75wu
+# --- Dual-mode OSF pipeline for landmarks --- Project
+# vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses:
+# a75wu
 
 # --- Directories ---
 raw_dir <- "data/raw"
@@ -136,109 +138,117 @@ derived_dir <- "data/derived"
 usethis::use_directory(raw_dir)
 usethis::use_directory(derived_dir)
 
-# --- Check PAT ---
-if (nzchar(Sys.getenv("OSF_PAT"))) {
-  message("Authenticated with OSF PAT → building array from JSON")
+derived_node <- osfr::osf_retrieve_node("9fnsp")
+raw_node <- osfr::osf_retrieve_node("kwafd")
 
-  # --- PAT branch ---
-  # 1) Retrieve JSON files from Raw Data component
-  json_files <- osf_retrieve_node("kwafd") |>
-    osf_ls_files() |>
-    dplyr::filter(str_detect(name, "\\.json$"))
+# 5) Gate OSF uploads so they only run on my machine (no
+# interactive() so it works in Rmd)
+allow_flag <- tolower(Sys.getenv("ALLOW_OSF_UPLOAD"))
+allow_upload <- nzchar(Sys.getenv("OSF_PAT")) && allow_flag %in%
+    c("1", "true", "yes")
 
-  # 2) Download JSON files to raw_dir
-  osf_download(json_files, path = raw_dir, conflicts = "overwrite")
+if (allow_upload) {
+    cat("Authenticated with OSF PAT → building array from JSON\n")
+    osfr::osf_auth(Sys.getenv("OSF_PAT"))
 
-  # 3) Specimen IDs from filenames
-  json_paths <- list.files(raw_dir, pattern = "\\.json$", full.names = TRUE)
-  specimen_ids <- tools::file_path_sans_ext(basename(json_paths))
+    # 1) Retrieve JSON files from Raw Data component
+    json_files <- raw_node |>
+        osfr::osf_ls_files() |>
+        dplyr::filter(grepl("\\.json$", name, ignore.case = TRUE))
 
-  # 4) Read JSON into numeric matrices
-  read_lmk_matrix <- function(path) {
-    m <- SlicerMorphR::read.markups.json(path)
-    m <- as.matrix(m)
-    m <- apply(m, 2, as.numeric)
-    if (is.null(colnames(m))) colnames(m) <- c("X", "Y", "Z")
-    m
-  }
-  landmark_list <- map(json_paths, read_lmk_matrix) |>
-    set_names(specimen_ids)
+    # 2) Download JSON files to raw_dir
+    osfr::osf_download(json_files, path = raw_dir, conflicts = "overwrite")
 
-  # 5) Build array3d
-  p <- nrow(landmark_list[[1]])
-  k <- 3
-  n <- length(landmark_list)
+    # 3) Specimen IDs from filenames
+    json_paths <- list.files(raw_dir, pattern = "\\.json$", full.names = TRUE)
+    specimen_ids <- tools::file_path_sans_ext(basename(json_paths))
 
-  array3d <- array(
-    NA_real_,
-    dim = c(p, k, n),
-    dimnames = list(
-      landmark = seq_len(p),
-      coord    = c("X", "Y", "Z"),
-      specimen = names(landmark_list)
-    )
-  )
-  for (i in seq_along(landmark_list)) array3d[, , i] <- landmark_list[[i]]
-  storage.mode(array3d) <- "double"
+    # 4) Read JSON into numeric matrices
+    read_lmk_matrix <- function(path) {
+        m <- SlicerMorphR::read.markups.json(path)
+        m <- as.matrix(m)
+        m <- apply(m, 2, as.numeric)
+        if (is.null(colnames(m)))
+            colnames(m) <- c("X", "Y", "Z")
+        m
+    }
+    landmark_list <- purrr::map(json_paths, read_lmk_matrix) |>
+        purrr::set_names(specimen_ids)
 
-  # 6) Save array3d locally as RDS
-  saveRDS(array3d, file.path(derived_dir, "array3d.RDS"))
+    # 5) Build array3d
+    p <- nrow(landmark_list[[1]])
+    k <- 3
+    n <- length(landmark_list)
 
-  # 7) Create CSV + Parquet from array3d
-  df2d <- data.frame(specimen = dimnames(array3d)$specimen)
-  for (i in 1:p) {
-    df2d[[paste0("X", i)]] <- array3d[i, 1, ]
-    df2d[[paste0("Y", i)]] <- array3d[i, 2, ]
-    df2d[[paste0("Z", i)]] <- array3d[i, 3, ]
-  }
+    array3d <- array(NA_real_, dim = c(p, k, n), dimnames = list(landmark = seq_len(p),
+        coord = c("X", "Y", "Z"), specimen = names(landmark_list)))
+    for (i in seq_along(landmark_list)) array3d[, , i] <- landmark_list[[i]]
+    storage.mode(array3d) <- "double"
 
-  # 8) Upload CSV + Parquet to OSF Derived Data
-  derived_node <- osf_retrieve_node("9fnsp")
-  tmp_csv <- file.path(tempdir(), "landmarks.csv")
-  tmp_parquet <- file.path(tempdir(), "landmarks.parquet")
+    # 6) Save array3d locally as RDS (only .RDS goes to
+    # derived_dir)
+    saveRDS(array3d, file.path(derived_dir, "array3d.RDS"))
 
-  write_csv(df2d, tmp_csv)
-  write_parquet(df2d, tmp_parquet)
+    # 7) Create CSV + Parquet from array3d in-memory, write
+    # to temp, upload to OSF, then remove temp files
+    df2d <- data.frame(specimen = dimnames(array3d)$specimen,
+        stringsAsFactors = FALSE)
+    for (i in seq_len(p)) {
+        df2d[[paste0("X", i)]] <- array3d[i, 1, ]
+        df2d[[paste0("Y", i)]] <- array3d[i, 2, ]
+        df2d[[paste0("Z", i)]] <- array3d[i, 3, ]
+    }
 
-  osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
-  osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
+    tmp_csv <- file.path(tempdir(), "landmarks.csv")
+    tmp_parquet <- file.path(tempdir(), "landmarks.parquet")
+
+    readr::write_csv(df2d, tmp_csv)
+    arrow::write_parquet(df2d, tmp_parquet)
+
+    osfr::osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
+    osfr::osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
+
+    unlink(c(tmp_csv, tmp_parquet), force = TRUE)
 } else {
-  # --- No PAT branch ---
-  message("No OSF PAT → rebuilding array from Derived Data CSV")
+    # --- No PAT branch ---
+    cat("No OSF PAT → rebuilding array from Derived Data CSV (using temp file, not derived_dir)\n")
 
-  # 1) Download CSV from Derived Data
-  csv_file <- derived_node |>
-    osf_ls_files() |>
-    dplyr::filter(name == "landmarks.csv")
+    # 1) Locate CSV on OSF (do not save locally in project)
+    csv_file <- derived_node |>
+        osfr::osf_ls_files() |>
+        dplyr::filter(name == "landmarks.csv")
 
-  osf_download(csv_file, path = derived_dir, conflicts = "error")
+    # 2) Download CSV to tempdir and read from there
+    dl <- osfr::osf_download(csv_file, path = tempdir(), conflicts = "overwrite")
+    csv_path <- dl$local_path
+    df2d <- readr::read_csv(csv_path, show_col_types = FALSE)
 
-  # 2) Rebuild array3d from CSV
-  df2d <- read_csv(file.path(derived_dir, "landmarks.csv"))
-  df_matrix <- as.matrix(df2d %>% select(-specimen))
+    # 3) Rebuild array3d from CSV
+    df_matrix <- as.matrix(dplyr::select(df2d, -specimen))
 
-  p <- ncol(df_matrix) / 3
-  k <- 3
-  n <- nrow(df_matrix)
+    p <- ncol(df_matrix)/3
+    k <- 3
+    n <- nrow(df_matrix)
 
-  array3d <- geomorph::arrayspecs(df_matrix, p = p, k = k)
+    array3d <- geomorph::arrayspecs(df_matrix, p = p, k = k)
 
-  # 3) Set dimnames identical to PAT branch
-  dimnames(array3d)[[1]] <- seq_len(p) # landmarks
-  dimnames(array3d)[[2]] <- c("X", "Y", "Z") # coords
-  dimnames(array3d)[[3]] <- df2d$specimen # specimen names
+    # 4) Set dimnames identical to PAT branch
+    dimnames(array3d)[[1]] <- seq_len(p)  # landmarks
+    dimnames(array3d)[[2]] <- c("X", "Y", "Z")  # coords
+    dimnames(array3d)[[3]] <- df2d$specimen  # specimen names
+
+    # 5) Save array3d locally as RDS (only .RDS goes to
+    # derived_dir)
+    saveRDS(array3d, file.path(derived_dir, "array3d.RDS"))
 }
 ```
 
-<div data-pagedtable="false">
-  <script data-pagedtable-source type="application/json">
-{"columns":[{"label":["name"],"name":[1],"type":["chr"],"align":["left"]},{"label":["id"],"name":[2],"type":["chr"],"align":["left"]},{"label":["meta"],"name":[3],"type":["list"],"align":["right"]}],"data":[{"1":"landmarks.parquet","2":"68b4a0ea3560139ce496af8a","3":"<named list [3]>"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
-  </script>
-</div>
+```
+## Authenticated with OSF PAT → building array from JSON
+```
 
 ``` r
-# --- Safety checks ---
-# Ensure array has correct structure
+# --- Safety checks --- Ensure array has correct structure
 is.numeric(array3d)
 ```
 
@@ -276,7 +286,8 @@ dimnames(array3d)[[3]]
 ```
 
 ``` r
-# Check requirement: number of specimens > number of coordinates
+# Check requirement: number of specimens > number of
+# coordinates
 dim(array3d)[3] > dim(array3d)[2]
 ```
 
@@ -288,13 +299,14 @@ When specimens were incomplete, the location of the missing LMs was estimated us
 
 
 ``` r
-#estimate.missing() WARNING: n > k
+# estimate.missing() WARNING: n > k
 estimateLMs <- estimate.missing(array3d, method = "TPS")
 ```
 
 
 ``` r
-# 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
+# 1) GPA with fixed landmarks (ProcD = TRUE to
+# compute/return Procrustes distances)
 gpa <- geomorph::gpagen(A = estimateLMs, ProcD = TRUE)
 ```
 
@@ -310,55 +322,33 @@ gpa <- geomorph::gpagen(A = estimateLMs, ProcD = TRUE)
 # 2) PCA on aligned coordinates
 pca <- geomorph::gm.prcomp(gpa$coords)
 
-# 3) Capture existing contents before Slicer export
-pre_export <- dir(derived_dir, full.names = TRUE, all.files = FALSE)
+# 3) Export SlicerMorph bundle to derived_dir Note:
+# argument renamed to 'output_folder' per your current
+# SlicerMorphR version
+SlicerMorphR::geomorph2slicermorph2(gpa = gpa, pca = pca, output.folder = derived_dir)
 
-# 4) Export SlicerMorph bundle to derived_dir
-# Note: argument renamed to 'output_folder' per your current SlicerMorphR version
-SlicerMorphR::geomorph2slicermorph2(
-  gpa = gpa,
-  pca = pca,
-  output.folder = derived_dir
-)
+# 4) upload to OSF if my OSF_PAT is present
+if (allow_upload) {
+    cat("OSF PAT branch: uploading to OSF node 9fnsp\n")
 
-# 5) Determine which files/folders were newly created by the export
-post_export <- dir(derived_dir, full.names = TRUE, all.files = FALSE)
-slicer_exports <- setdiff(post_export, pre_export)
+    # Upload all non-RDS artifacts from derived_dir
+    # (recursively), overwrite on conflict
+    files_to_upload <- list.files(derived_dir, recursive = TRUE,
+        full.names = TRUE, include.dirs = FALSE)
+    files_to_upload <- files_to_upload[!grepl("\\.rds$", files_to_upload,
+        ignore.case = TRUE)]
 
-# 6) --- Check PAT ---
-if (nzchar(Sys.getenv("OSF_PAT"))) {
-  cat("Authenticated with OSF PAT\n")
-
-  # Upload all non-RDS artifacts from derived_dir (recursively), overwriting on OSF
-  files_to_upload <- list.files(
-    derived_dir,
-    recursive = TRUE,
-    full.names = TRUE,
-    include.dirs = FALSE
-  )
-  files_to_upload <- files_to_upload[
-    !grepl("\\.rds$", files_to_upload, ignore.case = TRUE)
-  ]
-
-  if (length(files_to_upload) == 0) {
-    cat("No non-RDS files found to upload from derived_dir.\n")
-  } else {
-    cat("Uploading ", length(files_to_upload), " file(s) to OSF (overwrite on conflict)...\n", sep = "")
     for (f in files_to_upload) {
-      osfr::osf_upload(derived_node, path = f, conflicts = "overwrite")
+        osfr::osf_upload(derived_node, path = f, conflicts = "overwrite")
     }
-    cat("Upload complete to OSF node 9fnsp.\n")
-  }
 } else {
-  # --- No PAT branch ---
-  cat("No OSF PAT. Outputs only saved locally in: ", derived_dir, "\n", sep = "")
+    cat("No OSF PAT branch: saved outputs locally in: ", derived_dir,
+        "\n", sep = "")
 }
 ```
 
 ```
-## Authenticated with OSF PAT
-## Uploading 6 file(s) to OSF (overwrite on conflict)...
-## Upload complete to OSF node 9fnsp.
+## OSF PAT branch: uploading to OSF node 9fnsp
 ```
 
 TODO: upload to SlicerMorph again to see errors in placing landmarks and see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`; code not displaying on html and removed derived data folder from github
@@ -394,10 +384,10 @@ TODO: upload to SlicerMorph again to see errors in placing landmarks and see if 
 ##  [1] SlicerMorphR_0.0.2.0000 jsonlite_2.0.0          geomorph_4.0.10        
 ##  [4] Matrix_1.7-3            rgl_1.3.24              RRPP_2.1.2             
 ##  [7] osfr_0.2.9              usethis_3.2.0           arrow_21.0.0.1         
-## [10] styler_1.10.3           lubridate_1.9.4         forcats_1.0.0          
-## [13] stringr_1.5.1           dplyr_1.1.4             purrr_1.1.0            
-## [16] readr_2.1.5             tidyr_1.3.1             tibble_3.3.0           
-## [19] ggplot2_3.5.2           tidyverse_2.0.0        
+## [10] formatR_1.14            styler_1.10.3           lubridate_1.9.4        
+## [13] forcats_1.0.0           stringr_1.5.1           dplyr_1.1.4            
+## [16] purrr_1.1.0             readr_2.1.5             tidyr_1.3.1            
+## [19] tibble_3.3.0            ggplot2_3.5.2           tidyverse_2.0.0        
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] gtable_0.3.6       xfun_0.53          bslib_0.9.0        htmlwidgets_1.6.4 

@@ -64,6 +64,7 @@ load_or_install <- function(pkg, github = NULL) {
 cran_pkgs <- c(
   "tidyverse", #everyday data analyses
   "styler", #source code formatter
+  "formatR", #format output
   "arrow", #cross-language development platform to export .parquet
   "usethis", #automates repetitive tasks that arise during project setup
    "osfr", #interface for OSF
@@ -135,26 +136,25 @@ raw_dir <- "data/raw"
 derived_dir <- "data/derived"
 usethis::use_directory(raw_dir)
 usethis::use_directory(derived_dir)
-derived_node <- osf_retrieve_node("9fnsp")
-raw_node <- osf_retrieve_node("kwafd")
 
-# 5) Gate OSF uploads so they only run on my machine
+derived_node <- osfr::osf_retrieve_node("9fnsp")
+raw_node <- osfr::osf_retrieve_node("kwafd")
+
+# 5) Gate OSF uploads so they only run on my machine (no interactive() so it works in Rmd)
 allow_flag <- tolower(Sys.getenv("ALLOW_OSF_UPLOAD"))
-allow_upload <- interactive() &&
-  nzchar(Sys.getenv("OSF_PAT")) &&
-  allow_flag %in% c("1", "true", "yes")
+allow_upload <- nzchar(Sys.getenv("OSF_PAT")) && allow_flag %in% c("1", "true", "yes")
 
 if (allow_upload) {
-  cat("Authenticated with OSF PAT → building array from JSON")
-# --- Check PAT ---
-  # --- PAT branch ---
+  cat("Authenticated with OSF PAT → building array from JSON\n")
+  osfr::osf_auth(Sys.getenv("OSF_PAT"))
+
   # 1) Retrieve JSON files from Raw Data component
   json_files <- raw_node |>
-    osf_ls_files() |>
-    dplyr::filter(str_detect(name, "\\.json$"))
+    osfr::osf_ls_files() |>
+    dplyr::filter(grepl("\\.json$", name, ignore.case = TRUE))
 
   # 2) Download JSON files to raw_dir
-  osf_download(json_files, path = raw_dir, conflicts = "overwrite")
+  osfr::osf_download(json_files, path = raw_dir, conflicts = "overwrite")
 
   # 3) Specimen IDs from filenames
   json_paths <- list.files(raw_dir, pattern = "\\.json$", full.names = TRUE)
@@ -168,8 +168,8 @@ if (allow_upload) {
     if (is.null(colnames(m))) colnames(m) <- c("X", "Y", "Z")
     m
   }
-  landmark_list <- map(json_paths, read_lmk_matrix) |>
-    set_names(specimen_ids)
+  landmark_list <- purrr::map(json_paths, read_lmk_matrix) |>
+    purrr::set_names(specimen_ids)
 
   # 5) Build array3d
   p <- nrow(landmark_list[[1]])
@@ -188,40 +188,43 @@ if (allow_upload) {
   for (i in seq_along(landmark_list)) array3d[, , i] <- landmark_list[[i]]
   storage.mode(array3d) <- "double"
 
-  # 6) Save array3d locally as RDS
+  # 6) Save array3d locally as RDS (only .RDS goes to derived_dir)
   saveRDS(array3d, file.path(derived_dir, "array3d.RDS"))
 
-  # 7) Create CSV + Parquet from array3d
-  df2d <- data.frame(specimen = dimnames(array3d)$specimen)
-  for (i in 1:p) {
+  # 7) Create CSV + Parquet from array3d in-memory, write to temp, upload to OSF, then remove temp files
+  df2d <- data.frame(specimen = dimnames(array3d)$specimen, stringsAsFactors = FALSE)
+  for (i in seq_len(p)) {
     df2d[[paste0("X", i)]] <- array3d[i, 1, ]
     df2d[[paste0("Y", i)]] <- array3d[i, 2, ]
     df2d[[paste0("Z", i)]] <- array3d[i, 3, ]
   }
 
-  # 8) Upload CSV + Parquet to OSF Derived Data
   tmp_csv <- file.path(tempdir(), "landmarks.csv")
   tmp_parquet <- file.path(tempdir(), "landmarks.parquet")
 
-  write_csv(df2d, tmp_csv)
-  write_parquet(df2d, tmp_parquet)
+  readr::write_csv(df2d, tmp_csv)
+  arrow::write_parquet(df2d, tmp_parquet)
 
-  osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
-  osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
+  osfr::osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
+  osfr::osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
+
+  unlink(c(tmp_csv, tmp_parquet), force = TRUE)
 } else {
   # --- No PAT branch ---
-  message("No OSF PAT → rebuilding array from Derived Data CSV")
+  cat("No OSF PAT → rebuilding array from Derived Data CSV (using temp file, not derived_dir)\n")
 
-  # 1) Download CSV from Derived Data
+  # 1) Locate CSV on OSF (do not save locally in project)
   csv_file <- derived_node |>
-    osf_ls_files() |>
+    osfr::osf_ls_files() |>
     dplyr::filter(name == "landmarks.csv")
 
-  osf_download(csv_file, path = derived_dir, conflicts = "error")
+  # 2) Download CSV to tempdir and read from there
+  dl <- osfr::osf_download(csv_file, path = tempdir(), conflicts = "overwrite")
+  csv_path <- dl$local_path
+  df2d <- readr::read_csv(csv_path, show_col_types = FALSE)
 
-  # 2) Rebuild array3d from CSV
-  df2d <- read_csv(file.path(derived_dir, "landmarks.csv"))
-  df_matrix <- as.matrix(df2d %>% select(-specimen))
+  # 3) Rebuild array3d from CSV
+  df_matrix <- as.matrix(dplyr::select(df2d, -specimen))
 
   p <- ncol(df_matrix) / 3
   k <- 3
@@ -229,17 +232,20 @@ if (allow_upload) {
 
   array3d <- geomorph::arrayspecs(df_matrix, p = p, k = k)
 
-  # 3) Set dimnames identical to PAT branch
+  # 4) Set dimnames identical to PAT branch
   dimnames(array3d)[[1]] <- seq_len(p) # landmarks
   dimnames(array3d)[[2]] <- c("X", "Y", "Z") # coords
   dimnames(array3d)[[3]] <- df2d$specimen # specimen names
+
+  # 5) Save array3d locally as RDS (only .RDS goes to derived_dir)
+  saveRDS(array3d, file.path(derived_dir, "array3d.RDS"))
 }
 
 # --- Safety checks ---
 # Ensure array has correct structure
 is.numeric(array3d)
 length(dim(array3d)) == 3
-dim(array3d)  # should be (landmarks, 3, specimens)
+dim(array3d) # should be (landmarks, 3, specimens)
 
 # Confirm specimen IDs are in the 3rd dimension
 dimnames(array3d)[[3]]
