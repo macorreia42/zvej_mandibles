@@ -23,7 +23,7 @@ csl: apa-single-spaced
 
 This file documents the geometric morphometrics of Zvejnieki mandibles. 3D landmarks were collected using 3DSlicer and statistical analyses used geomorph and SlicerMorph/SllicerMorphR [@adams2025; @rolfe2021].
 
-```{r setup, echo=FALSE}
+```{r setup}
 #this makes images save in folder in directory
 knitr::opts_chunk$set(
   echo = TRUE, #shows code
@@ -59,7 +59,7 @@ load_or_install <- function(pkg, github = NULL) {
 
 ```
 
-```{r packages, echo=FALSE}
+```{r packages}
 # CRAN packages
 cran_pkgs <- c(
   "tidyverse", #everyday data analyses
@@ -79,7 +79,7 @@ load_or_install("SlicerMorphR", github = "SlicerMorph/SlicerMorphR")
 
 ```
 
-```{r functions, echo = FALSE}
+```{r functions}
 #!setting decimals
 fmt_decimals <- function(decimals = 0) {
   function(x) format(x, nsmall = decimals, scientific = FALSE)
@@ -112,7 +112,7 @@ is_outlier <- function(x) {
 
 Fragmented specimens were virtually pieced together in 3D slicer using the Fiducial Registration Wizard [@godinho2020]. Then, in the Markups Module of 3DSlicer, coordinates were extracted from a total of 21 anatomical landmarks from the most complete hemi-mandible of each specimen to capture mandibular morphology [@godinho2022]. The use of left hemimandibles was favoured, but because that was also the favoured side when sampling, the sample ended up even.
 
-# Preparing Landmark Data for *geomorph*
+# Preparing Landmark Data for `geomorph`
 
 We implemented two parallel workflows for preparing landmark data into the format required by the `geomorph` package. The goal in both cases is to produce a 3D numeric array with dimensions *(p landmarks × k coordinates × n specimens)*, suitable for downstream analyses.
 
@@ -122,11 +122,11 @@ We implemented two parallel workflows for preparing landmark data into the forma
 2.  **From `.csv` files**\
     Landmark coordinates saved as CSVs were read into matrices and similarly stacked into a 3D array with the same dimensional structure.
 
-Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1].
+Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1]. Some safety checks were also included to ensure the produced dataset adheres to `geomorph` criteria.
 
 [^1]: in the package `osfr`, PATs are required to upload files, create projects/components, access information about your private projects, or download files in your private projects. PATs are not required for accessing information about public projects or downloading public files, but authentication with a PAT will increase the rate limit on the API
 
-```{r variables, echo = FALSE}
+```{r variables}
 # --- Dual-mode OSF pipeline for landmarks ---
 # Project vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses: a75wu
 
@@ -135,14 +135,21 @@ raw_dir <- "data/raw"
 derived_dir <- "data/derived"
 usethis::use_directory(raw_dir)
 usethis::use_directory(derived_dir)
+derived_node <- osf_retrieve_node("9fnsp")
+raw_node <- osf_retrieve_node("kwafd")
 
+# 5) Gate OSF uploads so they only run on my machine
+allow_flag <- tolower(Sys.getenv("ALLOW_OSF_UPLOAD"))
+allow_upload <- interactive() &&
+  nzchar(Sys.getenv("OSF_PAT")) &&
+  allow_flag %in% c("1", "true", "yes")
+
+if (allow_upload) {
+  cat("Authenticated with OSF PAT → building array from JSON")
 # --- Check PAT ---
-if (nzchar(Sys.getenv("OSF_PAT"))) {
-  message("Authenticated with OSF PAT → building array from JSON")
-
   # --- PAT branch ---
   # 1) Retrieve JSON files from Raw Data component
-  json_files <- osf_retrieve_node("kwafd") |>
+  json_files <- raw_node |>
     osf_ls_files() |>
     dplyr::filter(str_detect(name, "\\.json$"))
 
@@ -193,7 +200,6 @@ if (nzchar(Sys.getenv("OSF_PAT"))) {
   }
 
   # 8) Upload CSV + Parquet to OSF Derived Data
-  derived_node <- osf_retrieve_node("9fnsp")
   tmp_csv <- file.path(tempdir(), "landmarks.csv")
   tmp_parquet <- file.path(tempdir(), "landmarks.parquet")
 
@@ -242,40 +248,33 @@ dimnames(array3d)[[3]]
 dim(array3d)[3] > dim(array3d)[2]
 ```
 
-Some safety checks were also included to ensure the produced dataset adheres to `geomorph` criteria. When specimens were incomplete, the location of the missing LMs was estimated using the thin plate spline (TPS) function (`estimate.missing()`) of the `geomorph` package.
+When specimens were incomplete, the location of the missing LMs was estimated using the thin plate spline (TPS) function (`estimate.missing()`) of the `geomorph` package.
 
-```{r estimate, echo = FALSE}
+```{r estimate}
 #estimate.missing() WARNING: n > k
 estimateLMs <- estimate.missing(array3d, method = "TPS")
 ```
 
-```{r gpa, echo = FALSE}
+```{r gpa}
 # 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
 gpa <- geomorph::gpagen(A = estimateLMs, ProcD = TRUE)
 
 # 2) PCA on aligned coordinates
 pca <- geomorph::gm.prcomp(gpa$coords)
 
-# 3) Capture existing contents before Slicer export
-pre_export <- dir(derived_dir, full.names = TRUE, all.files = FALSE)
-
-# 4) Export SlicerMorph bundle to derived_dir
-#    Note: argument renamed to 'output_folder' per your current SlicerMorphR version
+# 3) Export SlicerMorph bundle to derived_dir
+# Note: argument renamed to 'output_folder' per your current SlicerMorphR version
 SlicerMorphR::geomorph2slicermorph2(
   gpa = gpa,
   pca = pca,
   output.folder = derived_dir
 )
 
-# 5) Determine which files/folders were newly created by the export
-post_export <- dir(derived_dir, full.names = TRUE, all.files = FALSE)
-slicer_exports <- setdiff(post_export, pre_export)
+# 4) upload to OSF if my OSF_PAT is present
+if (allow_upload) {
+  cat("OSF PAT branch: uploading to OSF node 9fnsp\n")
 
-# 6) --- Check PAT ---
-if (nzchar(Sys.getenv("OSF_PAT"))) {
-  cat("Authenticated with OSF PAT\n")
-
-  # Upload all non-RDS artifacts from derived_dir (recursively), overwriting on OSF
+  # Upload all non-RDS artifacts from derived_dir (recursively), overwrite on conflict
   files_to_upload <- list.files(
     derived_dir,
     recursive = TRUE,
@@ -284,22 +283,15 @@ if (nzchar(Sys.getenv("OSF_PAT"))) {
   )
   files_to_upload <- files_to_upload[!grepl("\\.rds$", files_to_upload, ignore.case = TRUE)]
 
-  if (length(files_to_upload) == 0) {
-    cat("No non-RDS files found to upload from derived_dir.\n")
-  } else {
-    cat("Uploading ", length(files_to_upload), " file(s) to OSF (overwrite on conflict)...\n", sep = "")
-    for (f in files_to_upload) {
-      osfr::osf_upload(derived_node, path = f, conflicts = "overwrite")
-    }
-    cat("Upload complete to OSF node 9fnsp.\n")
+  for (f in files_to_upload) {
+    osfr::osf_upload(derived_node, path = f, conflicts = "overwrite")
   }
 } else {
-  # --- No PAT branch ---
-  cat("No OSF PAT. Saved outputs locally in: ", derived_dir, "\n", sep = "")
+  cat("No OSF PAT branch: saved outputs locally in: ", derived_dir, "\n", sep = "")
 }
 ```
 
-TODO: upload to SlicerMorph again to see errors in placing landmarks and see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`
+TODO: upload to SlicerMorph again to see errors in placing landmarks and see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`; code not displaying on html and removed derived data folder from github
 
 ```{r stats, echo=FALSE}
 

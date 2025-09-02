@@ -11,7 +11,7 @@
 
 <meta name="author" content="Maria Ana Correia" />
 
-<meta name="date" content="2025-01-09" />
+<meta name="date" content="2025-02-09" />
 
 <title>Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study</title>
 
@@ -2865,7 +2865,7 @@ border-radius: 0px;
 transition: the Zvejnieki case study</h1>
 <h3 class="subtitle">Analyses Scripts</h3>
 <h4 class="author">Maria Ana Correia</h4>
-<h4 class="date">01/09/2025</h4>
+<h4 class="date">02/09/2025</h4>
 
 </div>
 
@@ -2873,6 +2873,80 @@ transition: the Zvejnieki case study</h1>
 <p>This file documents the geometric morphometrics of Zvejnieki
 mandibles. 3D landmarks were collected using 3DSlicer and statistical
 analyses used geomorph and SlicerMorph/SllicerMorphR <span class="citation">(<a href="#ref-adams2025">Adams et al., 2025</a>; <a href="#ref-rolfe2021">Rolfe et al., 2021</a>)</span>.</p>
+<pre class="r"><code>#this makes images save in folder in directory
+knitr::opts_chunk$set(
+  echo = TRUE, #shows code
+  warning = FALSE, message = FALSE, #stops warning messages
+  fig.path = &quot;images/&quot;,
+  dev = c(&quot;svg&quot;, &quot;png&quot;, &quot;tiff&quot;), #saves figures as svg, tiff, and png in images folder
+  dpi = 500, #publishing quality for combination art (Elsevier)
+  tidy.opts=list(width.cutoff=60), # stops code from running off page
+  tidy=TRUE
+)
+
+# function to load or install from CRAN or GitHub
+# installs missing packages when sharing with others
+load_or_install &lt;- function(pkg, github = NULL) {
+  # If package not available, install it
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    if (is.null(github)) {
+      # Install from CRAN
+      install.packages(pkg, dependencies = TRUE)
+    } else {
+      # Install from GitHub (needs remotes package)
+      if (!requireNamespace(&quot;remotes&quot;, quietly = TRUE)) {
+        install.packages(&quot;remotes&quot;)
+      }
+      remotes::install_github(github, dependencies = TRUE)
+    }
+  }
+  # Finally load it
+  suppressPackageStartupMessages(
+    library(pkg, character.only = TRUE)
+  )
+}</code></pre>
+<pre class="r"><code># CRAN packages
+cran_pkgs &lt;- c(
+  &quot;tidyverse&quot;, #everyday data analyses
+  &quot;styler&quot;, #source code formatter
+  &quot;arrow&quot;, #cross-language development platform to export .parquet
+  &quot;usethis&quot;, #automates repetitive tasks that arise during project setup
+   &quot;osfr&quot;, #interface for OSF
+  &quot;geomorph&quot; #geometric morphometrics
+  )
+
+purrr::walk(cran_pkgs, load_or_install)
+
+# GitHub packages (supply the repo as github = &quot;user/repo&quot;)
+load_or_install(&quot;SlicerMorphR&quot;, github = &quot;SlicerMorph/SlicerMorphR&quot;)
+#import SlicerMorph dataset into R</code></pre>
+<pre class="r"><code>#!setting decimals
+fmt_decimals &lt;- function(decimals = 0) {
+  function(x) format(x, nsmall = decimals, scientific = FALSE)
+}
+#graphical settings for ggplot
+my_theme &lt;- theme(
+  axis.text = element_text(size = 8, colour = &quot;black&quot;),
+  # makes numbers smaller and black (consider final display)
+  axis.ticks = element_line(linewidth = 0.5,
+                            colour = &quot;black&quot;),
+  # same for ticks
+  axis.title = element_text(size = 10),
+  # and for axis titles
+  panel.grid.minor = element_blank(),
+  panel.background = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_rect(
+    colour = &quot;black&quot;, fill = NA, size = 0.5)
+)
+
+#calculate outliers
+is_outlier &lt;- function(x) {
+  return(
+    x &lt; quantile(x, 0.25, na.rm = TRUE) - 1.5 * IQR(x, na.rm = TRUE) |
+      x &gt; quantile(x, 0.75, na.rm = TRUE) + 1.5 * IQR(x, na.rm = TRUE)
+  )
+}</code></pre>
 <p>Fragmented specimens were virtually pieced together in 3D slicer
 using the Fiducial Registration Wizard <span class="citation">(<a href="#ref-godinho2020">Godinho &amp; Gonçalves, 2020</a>)</span>. Then,
 in the Markups Module of 3DSlicer, coordinates were extracted from a
@@ -2882,7 +2956,7 @@ each specimen to capture mandibular morphology <span class="citation">(<a href="
 because that was also the favoured side when sampling, the sample ended
 up even.</p>
 <div id="preparing-landmark-data-for-geomorph" class="section level1">
-<h1>Preparing Landmark Data for <em>geomorph</em></h1>
+<h1>Preparing Landmark Data for <code>geomorph</code></h1>
 <p>We implemented two parallel workflows for preparing landmark data
 into the format required by the <code>geomorph</code> package. The goal
 in both cases is to produce a 3D numeric array with dimensions <em>(p
@@ -2899,37 +2973,199 @@ stacked into a 3D array with the same dimensional structure.</p></li>
 </ol>
 <p>Both approaches produce the object <code>array3d</code> for use in
 <code>geomorph</code>, and use depends on whether user has access to raw
-(<code>.mark.json</code>) or derived (<code>.csv</code>) data on <a href="https://osf.io/vkat9/">OSF</a> <span class="citation">(<a href="#ref-foster2017">Foster &amp; Deardorff, 2017</a>)</span><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
+(<code>.mark.json</code>) or derived (<code>.csv</code>) data on <a href="https://osf.io/vkat9/">OSF</a> <span class="citation">(<a href="#ref-foster2017">Foster &amp; Deardorff, 2017</a>)</span><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>. Some
+safety checks were also included to ensure the produced dataset adheres
+to <code>geomorph</code> criteria.</p>
+<pre class="r"><code># --- Dual-mode OSF pipeline for landmarks ---
+# Project vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses: a75wu
+
+# --- Directories ---
+raw_dir &lt;- &quot;data/raw&quot;
+derived_dir &lt;- &quot;data/derived&quot;
+usethis::use_directory(raw_dir)
+usethis::use_directory(derived_dir)
+
+# --- Check PAT ---
+if (nzchar(Sys.getenv(&quot;OSF_PAT&quot;))) {
+  message(&quot;Authenticated with OSF PAT → building array from JSON&quot;)
+
+  # --- PAT branch ---
+  # 1) Retrieve JSON files from Raw Data component
+  json_files &lt;- osf_retrieve_node(&quot;kwafd&quot;) |&gt;
+    osf_ls_files() |&gt;
+    dplyr::filter(str_detect(name, &quot;\\.json$&quot;))
+
+  # 2) Download JSON files to raw_dir
+  osf_download(json_files, path = raw_dir, conflicts = &quot;overwrite&quot;)
+
+  # 3) Specimen IDs from filenames
+  json_paths &lt;- list.files(raw_dir, pattern = &quot;\\.json$&quot;, full.names = TRUE)
+  specimen_ids &lt;- tools::file_path_sans_ext(basename(json_paths))
+
+  # 4) Read JSON into numeric matrices
+  read_lmk_matrix &lt;- function(path) {
+    m &lt;- SlicerMorphR::read.markups.json(path)
+    m &lt;- as.matrix(m)
+    m &lt;- apply(m, 2, as.numeric)
+    if (is.null(colnames(m))) colnames(m) &lt;- c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;)
+    m
+  }
+  landmark_list &lt;- map(json_paths, read_lmk_matrix) |&gt;
+    set_names(specimen_ids)
+
+  # 5) Build array3d
+  p &lt;- nrow(landmark_list[[1]])
+  k &lt;- 3
+  n &lt;- length(landmark_list)
+
+  array3d &lt;- array(
+    NA_real_,
+    dim = c(p, k, n),
+    dimnames = list(
+      landmark = seq_len(p),
+      coord    = c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;),
+      specimen = names(landmark_list)
+    )
+  )
+  for (i in seq_along(landmark_list)) array3d[, , i] &lt;- landmark_list[[i]]
+  storage.mode(array3d) &lt;- &quot;double&quot;
+
+  # 6) Save array3d locally as RDS
+  saveRDS(array3d, file.path(derived_dir, &quot;array3d.RDS&quot;))
+
+  # 7) Create CSV + Parquet from array3d
+  df2d &lt;- data.frame(specimen = dimnames(array3d)$specimen)
+  for (i in 1:p) {
+    df2d[[paste0(&quot;X&quot;, i)]] &lt;- array3d[i, 1, ]
+    df2d[[paste0(&quot;Y&quot;, i)]] &lt;- array3d[i, 2, ]
+    df2d[[paste0(&quot;Z&quot;, i)]] &lt;- array3d[i, 3, ]
+  }
+
+  # 8) Upload CSV + Parquet to OSF Derived Data
+  derived_node &lt;- osf_retrieve_node(&quot;9fnsp&quot;)
+  tmp_csv &lt;- file.path(tempdir(), &quot;landmarks.csv&quot;)
+  tmp_parquet &lt;- file.path(tempdir(), &quot;landmarks.parquet&quot;)
+
+  write_csv(df2d, tmp_csv)
+  write_parquet(df2d, tmp_parquet)
+
+  osf_upload(derived_node, path = tmp_csv, conflicts = &quot;overwrite&quot;)
+  osf_upload(derived_node, path = tmp_parquet, conflicts = &quot;overwrite&quot;)
+} else {
+  # --- No PAT branch ---
+  message(&quot;No OSF PAT → rebuilding array from Derived Data CSV&quot;)
+
+  # 1) Download CSV from Derived Data
+  csv_file &lt;- derived_node |&gt;
+    osf_ls_files() |&gt;
+    dplyr::filter(name == &quot;landmarks.csv&quot;)
+
+  osf_download(csv_file, path = derived_dir, conflicts = &quot;error&quot;)
+
+  # 2) Rebuild array3d from CSV
+  df2d &lt;- read_csv(file.path(derived_dir, &quot;landmarks.csv&quot;))
+  df_matrix &lt;- as.matrix(df2d %&gt;% select(-specimen))
+
+  p &lt;- ncol(df_matrix) / 3
+  k &lt;- 3
+  n &lt;- nrow(df_matrix)
+
+  array3d &lt;- geomorph::arrayspecs(df_matrix, p = p, k = k)
+
+  # 3) Set dimnames identical to PAT branch
+  dimnames(array3d)[[1]] &lt;- seq_len(p) # landmarks
+  dimnames(array3d)[[2]] &lt;- c(&quot;X&quot;, &quot;Y&quot;, &quot;Z&quot;) # coords
+  dimnames(array3d)[[3]] &lt;- df2d$specimen # specimen names
+}</code></pre>
 <div data-pagedtable="false">
 <script data-pagedtable-source type="application/json">
 {"columns":[{"label":["name"],"name":[1],"type":["chr"],"align":["left"]},{"label":["id"],"name":[2],"type":["chr"],"align":["left"]},{"label":["meta"],"name":[3],"type":["list"],"align":["right"]}],"data":[{"1":"landmarks.parquet","2":"68b4a0ea3560139ce496af8a","3":"<named list [3]>"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
   </script>
 </div>
+<pre class="r"><code># --- Safety checks ---
+# Ensure array has correct structure
+is.numeric(array3d)</code></pre>
 <pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>length(dim(array3d)) == 3</code></pre>
 <pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code>dim(array3d)  # should be (landmarks, 3, specimens)</code></pre>
 <pre><code>## [1] 21  3 10</code></pre>
+<pre class="r"><code># Confirm specimen IDs are in the 3rd dimension
+dimnames(array3d)[[3]]</code></pre>
 <pre><code>##  [1] &quot;ILH_Zvejnieki_34.115.228.mrk&quot;     &quot;ILH_Zvejnieki_34.118.234.mrk&quot;    
 ##  [3] &quot;ILH_Zvejnieki_34.22.63_miss.mrk&quot;  &quot;ILH_Zvejnieki_34.3.16.mrk&quot;       
 ##  [5] &quot;ILH_Zvejnieki_34.43.112_miss.mrk&quot; &quot;ILH_Zvejnieki_34.46.115.mrk&quot;     
 ##  [7] &quot;ILH_Zvejnieki_34.58.134.mrk&quot;      &quot;ILH_Zvejnieki_34.66.153.mrk&quot;     
 ##  [9] &quot;ILH_Zvejnieki_34.74.164.mrk&quot;      &quot;ILH_Zvejnieki_34.85.181.mrk&quot;</code></pre>
+<pre class="r"><code># Check requirement: number of specimens &gt; number of coordinates
+dim(array3d)[3] &gt; dim(array3d)[2]</code></pre>
 <pre><code>## [1] TRUE</code></pre>
-<p>Some safety checks were also included to ensure the produced dataset
-adheres to <code>geomorph</code> criteria. When specimens were
-incomplete, the location of the missing LMs was estimated using the thin
-plate spline (TPS) function (<code>estimate.missing()</code>) of the
-<code>geomorph</code> package.</p>
+<p>When specimens were incomplete, the location of the missing LMs was
+estimated using the thin plate spline (TPS) function
+(<code>estimate.missing()</code>) of the <code>geomorph</code>
+package.</p>
+<pre class="r"><code>#estimate.missing() WARNING: n &gt; k
+estimateLMs &lt;- estimate.missing(array3d, method = &quot;TPS&quot;)</code></pre>
+<pre class="r"><code># 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
+gpa &lt;- geomorph::gpagen(A = estimateLMs, ProcD = TRUE)</code></pre>
 <pre><code>## 
 ## Performing GPA
 ##   |                                                                              |                                                                      |   0%  |                                                                              |==================                                                    |  25%  |                                                                              |===================================                                   |  50%  |                                                                              |======================================================================| 100%
 ## 
 ## Making projections... Finished!</code></pre>
+<pre class="r"><code># 2) PCA on aligned coordinates
+pca &lt;- geomorph::gm.prcomp(gpa$coords)
+
+# 3) Capture existing contents before Slicer export
+pre_export &lt;- dir(derived_dir, full.names = TRUE, all.files = FALSE)
+
+# 4) Export SlicerMorph bundle to derived_dir
+# Note: argument renamed to &#39;output_folder&#39; per your current SlicerMorphR version
+SlicerMorphR::geomorph2slicermorph2(
+  gpa = gpa,
+  pca = pca,
+  output.folder = derived_dir
+)
+
+# 5) Determine which files/folders were newly created by the export
+post_export &lt;- dir(derived_dir, full.names = TRUE, all.files = FALSE)
+slicer_exports &lt;- setdiff(post_export, pre_export)
+
+# 6) --- Check PAT ---
+if (nzchar(Sys.getenv(&quot;OSF_PAT&quot;))) {
+  cat(&quot;Authenticated with OSF PAT\n&quot;)
+
+  # Upload all non-RDS artifacts from derived_dir (recursively), overwriting on OSF
+  files_to_upload &lt;- list.files(
+    derived_dir,
+    recursive = TRUE,
+    full.names = TRUE,
+    include.dirs = FALSE
+  )
+  files_to_upload &lt;- files_to_upload[
+    !grepl(&quot;\\.rds$&quot;, files_to_upload, ignore.case = TRUE)
+  ]
+
+  if (length(files_to_upload) == 0) {
+    cat(&quot;No non-RDS files found to upload from derived_dir.\n&quot;)
+  } else {
+    cat(&quot;Uploading &quot;, length(files_to_upload), &quot; file(s) to OSF (overwrite on conflict)...\n&quot;, sep = &quot;&quot;)
+    for (f in files_to_upload) {
+      osfr::osf_upload(derived_node, path = f, conflicts = &quot;overwrite&quot;)
+    }
+    cat(&quot;Upload complete to OSF node 9fnsp.\n&quot;)
+  }
+} else {
+  # --- No PAT branch ---
+  cat(&quot;No OSF PAT. Outputs only saved locally in: &quot;, derived_dir, &quot;\n&quot;, sep = &quot;&quot;)
+}</code></pre>
 <pre><code>## Authenticated with OSF PAT
 ## Uploading 6 file(s) to OSF (overwrite on conflict)...
 ## Upload complete to OSF node 9fnsp.</code></pre>
 <p>TODO: upload to SlicerMorph again to see errors in placing landmarks
 and see if I can see shapes (video); check out on paper stuff to produce
-graphs on ggplot using <code>make_ggplot</code></p>
+graphs on ggplot using <code>make_ggplot</code>; code not displaying on
+html and removed derived data folder from github</p>
 </div>
 <div id="references" class="section level1">
 <h1>References</h1>
