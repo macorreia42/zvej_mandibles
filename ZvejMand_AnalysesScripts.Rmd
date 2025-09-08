@@ -7,6 +7,7 @@ output:
   pdf_document:
     latex_engine: xelatex
     citation_package: default
+
   html_document:
     code_folding: hide
     code_link: true
@@ -60,20 +61,20 @@ load_or_install <- function(pkg, github = NULL) {
 ```{r packages}
 # CRAN packages
 cran_pkgs <- c(
-  "tidyverse", #everyday data analyses
-  "styler", #source code formatter
-  "formatR", #format output
-  "arrow", #cross-language development platform to export .parquet
-  "usethis", #automates repetitive tasks that arise during project setup
-   "osfr", #interface for OSF
-  "geomorph" #geometric morphometrics
-  )
+  "tidyverse", # everyday data analyses
+  "styler", # source code formatter
+  "formatR", # format output
+  "arrow", # cross-language development platform to export .parquet
+  "usethis", # automates repetitive tasks that arise during project setup
+  "osfr", # interface for OSF
+  "geomorph" # geometric morphometrics
+)
 
 purrr::walk(cran_pkgs, load_or_install)
 
 # GitHub packages (supply the repo as github = "user/repo")
 load_or_install("SlicerMorphR", github = "SlicerMorph/SlicerMorphR")
-#import SlicerMorph dataset into R
+# import SlicerMorph dataset into R
 
 
 ```
@@ -83,12 +84,14 @@ load_or_install("SlicerMorphR", github = "SlicerMorph/SlicerMorphR")
 fmt_decimals <- function(decimals = 0) {
   function(x) format(x, nsmall = decimals, scientific = FALSE)
 }
-#graphical settings for ggplot
+# graphical settings for ggplot
 my_theme <- theme(
   axis.text = element_text(size = 8, colour = "black"),
   # makes numbers smaller and black (consider final display)
-  axis.ticks = element_line(linewidth = 0.5,
-                            colour = "black"),
+  axis.ticks = element_line(
+    linewidth = 0.5,
+    colour = "black"
+  ),
   # same for ticks
   axis.title = element_text(size = 10),
   # and for axis titles
@@ -96,10 +99,11 @@ my_theme <- theme(
   panel.background = element_blank(),
   panel.grid.major = element_blank(),
   panel.border = element_rect(
-    colour = "black", fill = NA, size = 0.5)
+    colour = "black", fill = NA, size = 0.5
+  )
 )
 
-#calculate outliers
+# calculate outliers
 is_outlier <- function(x) {
   return(
     x < quantile(x, 0.25, na.rm = TRUE) - 1.5 * IQR(x, na.rm = TRUE) |
@@ -301,14 +305,18 @@ array_report(array3d)
 
 # Estimating `NA` using `estimate.missing()`
 
-When specimens were incomplete, the location of the missing LMs was estimated using the thin plate spline (TPS) function (`estimate.missing()`) of the `geomorph` package.
+When specimens were incomplete, the location of the missing LMs was estimated using the thin plate spline (TPS) option of the function `estimate.missing()` of the `geomorph` package. Up to a maximum of 5 landmarks per specimen were estimated, since reconstruction of mandibles with more than 5 missing landmarks has been shown to result in reconstruction error and bias [@godinho2020a]. **TODO** Population specific reference mean specimens were used to reconstruct incomplete specimens as using inadequate references may also lead to large estimation errors [@neeser2009].
 
 ```{r estimate}
 #estimate.missing() WARNING: n > k
 estimateLMs <- estimate.missing(array3d, method = "TPS")
 ```
 
-# Conduct GPS using `geomorph` and export using `SlicerMorphR`
+# Conduct GPA using `geomorph` and export using `SlicerMorphR`
+
+Using the `gpapgen` function of the `geomorh` package, Generalized Procrustes Analysis (GPA) was used to superimpose all landmark configurations and remove the effects of location, size, and orientation on the raw coordinates. Using the `gm.prcomp` function of the `geomorph` package, Principal Component Analysis (PCA) was used to reduce dimensionality and examine shape differences between specimens.
+
+The resulting shape variables were then used to examine morphological variance and hypothetical similarities and/or differences between groups. Using the `geomorph2slicermorph2` function of the `SlicerMorphR` package, the variables were exported so they could visualised in in 3D slicer by warping a surface along the relevant PCs.
 
 ```{r gpa}
 # 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
@@ -347,6 +355,10 @@ if (allow_upload) {
   cat("No OSF PAT branch: saved outputs locally in: ", derived_dir, "\n", sep = "")
 }
 ```
+
+# Conduct statistical analyses
+
+Specimens were grouped based on chronology and region (i.e., Mesolithic Iberia, Levantine Chalcolithic, etc.). Potential differences in size (i.e., centroid size) were examined using the Kruskal–Wallis test. Shape differences were first tested using a nonparametric test Permutational Multivariate ANOVA (PERMANOVA) to assess potential multivariate shape differences in the different groups120. This was based on the first 29 PCs, which explain \~ 95% of the total variance and was implemented in Past121 using 10,000 permutations. The Kruskal–Wallis test (followed by post-hoc tests) was used to test for differences in the two first PCs, which were used together with surface warping to visualize shape differences across the groups. Kruskal–Wallis tests were implemented using the R package ggstatsplot122. The use of non-parametric testing was necessary for centroid size and PCs 1 and 2 after the Shapiro–Wilk’s test revealed that the ANOVA assumption of normality of residuals was not met for size, and Levene’s test of homogeneity of variances was not met for shape. These tests, along with the Durbin Watson test for independence of residuals, were carried out in the car R package123. Lastly, the morphol.disparity function of the geomorph package111 was used to examine hypothetical differences in shape variance across groups (i.e., disparity using Procrustes distances).
 
 TODO: upload to SlicerMorph again to see errors in placing landmarks and see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`;
 
