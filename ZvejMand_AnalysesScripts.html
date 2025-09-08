@@ -2975,8 +2975,8 @@ stacked into a 3D array with the same dimensional structure.</p></li>
 <p>Both approaches produce the object <code>array3d</code> for use in
 <code>geomorph</code>, and use depends on whether user has access to raw
 (<code>.mark.json</code>) or derived (<code>.csv</code>) data on <a href="https://osf.io/vkat9/">OSF</a> <span class="citation">(<a href="#ref-foster2017">Foster &amp; Deardorff, 2017</a>)</span><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>. Some
-safety checks were also included to ensure the produced dataset adheres
-to <code>geomorph</code> criteria.</p>
+safety checks were also included to ensure that the produced dataset
+adheres to <code>geomorph</code> criteria.</p>
 <pre class="r"><code># --- Dual-mode OSF pipeline for landmarks --- Project
 # vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses:
 # a75wu
@@ -3060,7 +3060,7 @@ if (allow_upload) {
     unlink(c(tmp_csv, tmp_parquet), force = TRUE)
 } else {
     # --- No PAT branch ---
-    cat(&quot;No OSF PAT → rebuilding array from Derived Data CSV (using temp file, not derived_dir)\n&quot;)
+    cat(&quot;No OSF PAT → rebuilding array from Derived Data CSV on OSF\n&quot;)
 
     # 1) Locate CSV on OSF (do not save locally in project)
     csv_file &lt;- derived_node |&gt;
@@ -3091,24 +3091,70 @@ if (allow_upload) {
     saveRDS(array3d, file.path(derived_dir, &quot;array3d.RDS&quot;))
 }</code></pre>
 <pre><code>## Authenticated with OSF PAT → building array from JSON</code></pre>
-<pre class="r"><code># --- Safety checks --- Ensure array has correct structure
-is.numeric(array3d)</code></pre>
-<pre><code>## [1] TRUE</code></pre>
-<pre class="r"><code>length(dim(array3d)) == 3</code></pre>
-<pre><code>## [1] TRUE</code></pre>
-<pre class="r"><code>dim(array3d)  # should be (landmarks, 3, specimens)</code></pre>
-<pre><code>## [1] 21  3 10</code></pre>
-<pre class="r"><code># Confirm specimen IDs are in the 3rd dimension
-dimnames(array3d)[[3]]</code></pre>
-<pre><code>##  [1] &quot;ILH_Zvejnieki_34.115.228.mrk&quot;     &quot;ILH_Zvejnieki_34.118.234.mrk&quot;    
-##  [3] &quot;ILH_Zvejnieki_34.22.63_miss.mrk&quot;  &quot;ILH_Zvejnieki_34.3.16.mrk&quot;       
-##  [5] &quot;ILH_Zvejnieki_34.43.112_miss.mrk&quot; &quot;ILH_Zvejnieki_34.46.115.mrk&quot;     
-##  [7] &quot;ILH_Zvejnieki_34.58.134.mrk&quot;      &quot;ILH_Zvejnieki_34.66.153.mrk&quot;     
-##  [9] &quot;ILH_Zvejnieki_34.74.164.mrk&quot;      &quot;ILH_Zvejnieki_34.85.181.mrk&quot;</code></pre>
-<pre class="r"><code># Check requirement: number of specimens &gt; number of
-# coordinates
-dim(array3d)[3] &gt; dim(array3d)[2]</code></pre>
-<pre><code>## [1] TRUE</code></pre>
+<pre class="r"><code># --- Safety checks ---
+array_report &lt;- function(array3d) {
+    # Basic facts
+    is_num &lt;- is.numeric(array3d)
+    dims &lt;- dim(array3d)
+    ndims &lt;- if (is.null(dims))
+        0L else length(dims)
+    p &lt;- if (ndims &gt;= 1)
+        dims[1] else NA_integer_
+    k &lt;- if (ndims &gt;= 2)
+        dims[2] else NA_integer_
+    n &lt;- if (ndims &gt;= 3)
+        dims[3] else NA_integer_
+
+    has_3_dims &lt;- ndims == 3
+    coords_ok &lt;- isTRUE(k %in% c(2, 3))
+    spec_gt_coord &lt;- isTRUE(n &gt; k)
+
+    # Specimen names in 3rd dim
+    dn &lt;- dimnames(array3d)
+    spec_names &lt;- if (!is.null(dn) &amp;&amp; length(dn) &gt;= 3)
+        dn[[3]] else NULL
+    has_spec_names &lt;- !is.null(spec_names) &amp;&amp; length(spec_names) ==
+        n &amp;&amp; all(!is.na(spec_names)) &amp;&amp; all(nzchar(spec_names))
+
+    # Non-finite counts (don’t fail if present; just
+    # report)
+    if (is_num) {
+        na_count &lt;- sum(is.na(array3d))
+        nan_count &lt;- sum(is.nan(array3d))
+        inf_count &lt;- sum(is.infinite(array3d))
+    } else {
+        # is.nan/is.infinite are numeric-only; report NA if
+        # not numeric
+        na_count &lt;- sum(is.na(array3d))
+        nan_count &lt;- NA_integer_
+        inf_count &lt;- NA_integer_
+    }
+
+    # Print a simple, compact report
+    cat(&quot;Array checks\n&quot;)
+    cat(&quot;  Numeric: &quot;, is_num, &quot;\n&quot;, sep = &quot;&quot;)
+    cat(&quot;  3 dims: &quot;, has_3_dims, &quot;  dims: &quot;, paste(ifelse(is.na(c(p,
+        k, n)), &quot;NA&quot;, c(p, k, n)), collapse = &quot; x &quot;), &quot;\n&quot;, sep = &quot;&quot;)
+    cat(&quot;  Coords k in {2,3}: &quot;, coords_ok, &quot;\n&quot;, sep = &quot;&quot;)
+    cat(&quot;  Specimen names present: &quot;, has_spec_names, &quot;\n&quot;, sep = &quot;&quot;)
+    cat(&quot;  n specimens &gt; n coords: &quot;, spec_gt_coord, &quot;\n&quot;, sep = &quot;&quot;)
+    cat(&quot;  Non-finite values: NA=&quot;, na_count, &quot;, NaN=&quot;, nan_count,
+        &quot;, Inf=&quot;, inf_count, &quot;\n&quot;, sep = &quot;&quot;)
+
+    invisible(list(is_numeric = is_num, has_3_dims = has_3_dims,
+        dims = c(p = p, k = k, n = n), coords_ok = coords_ok,
+        has_specimen_names = has_spec_names, specimens_gt_coords = spec_gt_coord,
+        nonfinite = list(na = na_count, nan = nan_count, inf = inf_count)))
+}
+
+array_report(array3d)</code></pre>
+<pre><code>## Array checks
+##   Numeric: TRUE
+##   3 dims: TRUE  dims: 21 x 3 x 10
+##   Coords k in {2,3}: TRUE
+##   Specimen names present: TRUE
+##   n specimens &gt; n coords: TRUE
+##   Non-finite values: NA=12, NaN=0, Inf=0</code></pre>
 <p>When specimens were incomplete, the location of the missing LMs was
 estimated using the thin plate spline (TPS) function
 (<code>estimate.missing()</code>) of the <code>geomorph</code>

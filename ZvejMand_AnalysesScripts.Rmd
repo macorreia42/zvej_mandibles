@@ -4,6 +4,9 @@ author: "Maria Ana Correia"
 date: '`r format(Sys.time(), "%d/%m/%Y")`'
 subtitle: "Analyses Scripts"
 output:
+  pdf_document:
+    latex_engine: xelatex
+    citation_package: default
   html_document:
     code_folding: hide
     code_link: true
@@ -11,11 +14,6 @@ output:
     toc: true
     toc_float: true
     df_print: paged
-  pdf_document:
-    latex_engine: xelatex
-    citation_package: default
-    includes:
-      in_header: mypackages.tex
 bibliography: references.bib
 link-citations: true
 csl: apa-single-spaced
@@ -123,7 +121,7 @@ We implemented two parallel workflows for preparing landmark data into the forma
 2.  **From `.csv` files**\
     Landmark coordinates saved as CSVs were read into matrices and similarly stacked into a 3D array with the same dimensional structure.
 
-Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1]. Some safety checks were also included to ensure the produced dataset adheres to `geomorph` criteria.
+Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1]. Some safety checks were also included to ensure that the produced dataset adheres to `geomorph` criteria.
 
 [^1]: in the package `osfr`, PATs are required to upload files, create projects/components, access information about your private projects, or download files in your private projects. PATs are not required for accessing information about public projects or downloading public files, but authentication with a PAT will increase the rate limit on the API
 
@@ -192,7 +190,8 @@ if (allow_upload) {
   saveRDS(array3d, file.path(derived_dir, "array3d.RDS"))
 
   # 7) Create CSV + Parquet from array3d in-memory, write to temp, upload to OSF, then remove temp files
-  df2d <- data.frame(specimen = dimnames(array3d)$specimen, stringsAsFactors = FALSE)
+  df2d <- data.frame(
+    specimen = dimnames(array3d)$specimen, stringsAsFactors = FALSE)
   for (i in seq_len(p)) {
     df2d[[paste0("X", i)]] <- array3d[i, 1, ]
     df2d[[paste0("Y", i)]] <- array3d[i, 2, ]
@@ -211,7 +210,7 @@ if (allow_upload) {
   unlink(c(tmp_csv, tmp_parquet), force = TRUE)
 } else {
   # --- No PAT branch ---
-  cat("No OSF PAT → rebuilding array from Derived Data CSV (using temp file, not derived_dir)\n")
+  cat("No OSF PAT → rebuilding array from Derived Data CSV on OSF\n")
 
   # 1) Locate CSV on OSF (do not save locally in project)
   csv_file <- derived_node |>
@@ -242,17 +241,65 @@ if (allow_upload) {
 }
 
 # --- Safety checks ---
-# Ensure array has correct structure
-is.numeric(array3d)
-length(dim(array3d)) == 3
-dim(array3d) # should be (landmarks, 3, specimens)
+array_report <- function(array3d) {
+  # Basic facts
+  is_num  <- is.numeric(array3d)
+  dims    <- dim(array3d)
+  ndims   <- if (is.null(dims)) 0L else length(dims)
+  p <- if (ndims >= 1) dims[1] else NA_integer_
+  k <- if (ndims >= 2) dims[2] else NA_integer_
+  n <- if (ndims >= 3) dims[3] else NA_integer_
 
-# Confirm specimen IDs are in the 3rd dimension
-dimnames(array3d)[[3]]
+  has_3_dims   <- ndims == 3
+  coords_ok    <- isTRUE(k %in% c(2, 3))
+  spec_gt_coord <- isTRUE(n > k)
 
-# Check requirement: number of specimens > number of coordinates
-dim(array3d)[3] > dim(array3d)[2]
+  # Specimen names in 3rd dim
+  dn <- dimnames(array3d)
+  spec_names <- if (!is.null(dn) && length(dn) >= 3) dn[[3]] else NULL
+  has_spec_names <- !is.null(spec_names) &&
+    length(spec_names) == n &&
+    all(!is.na(spec_names)) &&
+    all(nzchar(spec_names))
+
+  # Non-finite counts (don’t fail if present; just report)
+  if (is_num) {
+    na_count  <- sum(is.na(array3d))
+    nan_count <- sum(is.nan(array3d))
+    inf_count <- sum(is.infinite(array3d))
+  } else {
+    # is.nan/is.infinite are numeric-only; report NA if not numeric
+    na_count  <- sum(is.na(array3d))
+    nan_count <- NA_integer_
+    inf_count <- NA_integer_
+  }
+
+  # Print a simple, compact report
+  cat("Array checks\n")
+  cat("  Numeric: ", is_num, "\n", sep = "")
+  cat("  3 dims: ", has_3_dims, "  dims: ",
+      paste(ifelse(is.na(c(p, k, n)), "NA", c(p, k, n)), collapse = " x "),
+      "\n", sep = "")
+  cat("  Coords k in {2,3}: ", coords_ok, "\n", sep = "")
+  cat("  Specimen names present: ", has_spec_names, "\n", sep = "")
+  cat("  n specimens > n coords: ", spec_gt_coord, "\n", sep = "")
+  cat("  Non-finite values: NA=", na_count, ", NaN=", nan_count, ", Inf=", inf_count, "\n", sep = "")
+
+  invisible(list(
+    is_numeric = is_num,
+    has_3_dims = has_3_dims,
+    dims = c(p = p, k = k, n = n),
+    coords_ok = coords_ok,
+    has_specimen_names = has_spec_names,
+    specimens_gt_coords = spec_gt_coord,
+    nonfinite = list(na = na_count, nan = nan_count, inf = inf_count)
+  ))
+}
+
+array_report(array3d)
 ```
+
+# Estimating `NA` using `estimate.missing()`
 
 When specimens were incomplete, the location of the missing LMs was estimated using the thin plate spline (TPS) function (`estimate.missing()`) of the `geomorph` package.
 
@@ -260,6 +307,8 @@ When specimens were incomplete, the location of the missing LMs was estimated us
 #estimate.missing() WARNING: n > k
 estimateLMs <- estimate.missing(array3d, method = "TPS")
 ```
+
+# Conduct GPS using `geomorph` and export using `SlicerMorphR`
 
 ```{r gpa}
 # 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
@@ -287,7 +336,9 @@ if (allow_upload) {
     full.names = TRUE,
     include.dirs = FALSE
   )
-  files_to_upload <- files_to_upload[!grepl("\\.rds$", files_to_upload, ignore.case = TRUE)]
+  files_to_upload <- files_to_upload[
+    !grepl("\\.rds$", files_to_upload, ignore.case = TRUE)
+    ]
 
   for (f in files_to_upload) {
     osfr::osf_upload(derived_node, path = f, conflicts = "overwrite")
@@ -297,7 +348,7 @@ if (allow_upload) {
 }
 ```
 
-TODO: upload to SlicerMorph again to see errors in placing landmarks and see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`; code not displaying on html and removed derived data folder from github
+TODO: upload to SlicerMorph again to see errors in placing landmarks and see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`;
 
 ```{r stats, echo=FALSE}
 
