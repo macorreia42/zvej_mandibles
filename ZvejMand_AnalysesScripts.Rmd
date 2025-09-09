@@ -316,7 +316,9 @@ estimateLMs <- estimate.missing(array3d, method = "TPS")
 
 Using the `gpapgen` function of the `geomorh` package, Generalized Procrustes Analysis (GPA) was used to superimpose all landmark configurations and remove the effects of location, size, and orientation on the raw coordinates. Using the `gm.prcomp` function of the `geomorph` package, Principal Component Analysis (PCA) was used to reduce dimensionality and examine shape differences between specimens.
 
-The resulting shape variables were then used to examine morphological variance and hypothetical similarities and/or differences between groups. Using the `geomorph2slicermorph2` function of the `SlicerMorphR` package, the variables were exported so they could visualised in in 3D slicer by warping a surface along the relevant PCs.
+The resulting shape variables were then used to examine morphological variance and hypothetical similarities and/or differences between groups. Using the `geomorph2slicermorph2` function of the `SlicerMorphR` package, the variables were exported so they could be visualised in 3D slicer by warping a surface along the relevant PCs.
+
+On 3D slicer,
 
 ```{r gpa}
 # 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
@@ -360,7 +362,7 @@ if (allow_upload) {
 
 Specimens were grouped based on chronology and region (i.e., Mesolithic Iberia, Levantine Chalcolithic, etc.). Potential differences in size (i.e., centroid size) were examined using the Kruskal–Wallis test. Shape differences were first tested using a nonparametric test Permutational Multivariate ANOVA (PERMANOVA) to assess potential multivariate shape differences in the different groups120. This was based on the first 29 PCs, which explain \~ 95% of the total variance and was implemented in Past121 using 10,000 permutations. The Kruskal–Wallis test (followed by post-hoc tests) was used to test for differences in the two first PCs, which were used together with surface warping to visualize shape differences across the groups. Kruskal–Wallis tests were implemented using the R package ggstatsplot122. The use of non-parametric testing was necessary for centroid size and PCs 1 and 2 after the Shapiro–Wilk’s test revealed that the ANOVA assumption of normality of residuals was not met for size, and Levene’s test of homogeneity of variances was not met for shape. These tests, along with the Durbin Watson test for independence of residuals, were carried out in the car R package123. Lastly, the morphol.disparity function of the geomorph package111 was used to examine hypothetical differences in shape variance across groups (i.e., disparity using Procrustes distances).
 
-TODO: upload to SlicerMorph again to see errors in placing landmarks and see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`;
+TODO: upload to SlicerMorph again to see if I can see shapes (video); check out on paper stuff to produce graphs on ggplot using `make_ggplot`;
 
 ```{r stats, echo=FALSE}
 
