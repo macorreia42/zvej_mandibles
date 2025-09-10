@@ -10,3 +10,7 @@ images/*.svg
 images/*.tiff
 *.pdf
 *.json
+
+# Windows metadata
+desktop.ini
+Thumbs.db
