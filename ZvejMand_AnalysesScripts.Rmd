@@ -142,7 +142,7 @@ usethis::use_directory(derived_dir)
 derived_node <- osfr::osf_retrieve_node("9fnsp")
 raw_node <- osfr::osf_retrieve_node("kwafd")
 
-# 5) Gate OSF uploads so they only run on my machine (no interactive() so it works in Rmd)
+# 5) Gate OSF uploads so they only run on my machine
 allow_flag <- tolower(Sys.getenv("ALLOW_OSF_UPLOAD"))
 allow_upload <- nzchar(Sys.getenv("OSF_PAT")) && allow_flag %in% c("1", "true", "yes")
 
@@ -303,6 +303,175 @@ array_report <- function(array3d) {
 array_report(array3d)
 ```
 
+```{r groups, eval = FALSE}
+# THIS SHOULDN'T GO ON THE FINAL MARKDOWN
+normalize_specimen <- function(x) {
+  x |>
+    as.character() |>
+    stringr::str_trim() |>
+    stringr::str_squish()
+}
+
+# 1. Master scan table (keep specimen, side, missing)
+scan <- readr::read_csv("data/raw/scan.csv", show_col_types = FALSE) |>
+  dplyr::mutate(specimen = normalize_specimen(specimen)) |>
+  dplyr::select(specimen, side, missing)
+
+# 2. Period / culture table
+period_tbl <- readr::read_csv("data/raw/period.csv", show_col_types = FALSE) |>
+  dplyr::mutate(specimen = normalize_specimen(specimen)) |>
+  dplyr::filter(!is.na(specimen)) |>
+  dplyr::select(specimen, culture, period) |>
+  dplyr::distinct(specimen, .keep_all = TRUE)
+
+# 3. Demographics (sex) table
+demo_tbl <- readr::read_csv("data/raw/demographics.csv", show_col_types = FALSE) |>
+  dplyr::mutate(specimen = normalize_specimen(specimen)) |>
+  dplyr::filter(!is.na(specimen)) |>
+  dplyr::select(specimen, sex) |>
+  dplyr::distinct(specimen, .keep_all = TRUE)
+
+# 4. Join (keep all scan specimens)
+combined <- scan |>
+  dplyr::left_join(period_tbl, by = "specimen") |>
+  dplyr::left_join(demo_tbl, by = "specimen") |>
+  dplyr::mutate(
+    missing = as.numeric(missing),
+    side = factor(side),
+    culture = factor(culture),
+    period = factor(period),
+    sex = factor(sex),
+    specimen = as.character(specimen)
+  ) |>
+  dplyr::select(specimen, side, missing, culture, period, sex)
+
+# 5. Write output
+readr::write_csv(combined, "data/derived/specimen_metadata.csv")
+
+#-----DIAGNOSTICS----
+scan_raw   <- readr::read_csv("data/raw/scan.csv", show_col_types = FALSE)
+period_raw <- readr::read_csv("data/raw/period.csv", show_col_types = FALSE)
+demo_raw   <- readr::read_csv("data/raw/demographics.csv", show_col_types = FALSE)
+
+run_metadata_diagnostics <- function(
+    scan_raw,
+    period_raw,
+    demo_raw,
+    scan,        # processed scan table used to build 'combined'
+    period_tbl,  # processed period table used in joins
+    demo_tbl,    # processed demographics table used in joins
+    combined     # final joined table
+) {
+
+  cat("Rows scan vs combined:", nrow(scan), nrow(combined), "\n")
+  stopifnot(nrow(scan) == nrow(combined))
+
+  # Helper to report duplicates
+  report_dups <- function(df, label) {
+    dups <- df |>
+      dplyr::count(specimen) |>
+      dplyr::filter(!is.na(specimen), n > 1)
+    if (nrow(dups) > 0) {
+      cat("\nDuplicates in", label, ":\n")
+      print(dups)
+    } else {
+      cat("\nNo duplicates in", label, "\n")
+    }
+    dups
+  }
+
+  dup_scan_raw   <- report_dups(scan_raw,   "scan_raw")
+  dup_period_raw <- report_dups(period_raw, "period_raw")
+  dup_demo_raw   <- report_dups(demo_raw,   "demo_raw")
+
+  # Unmatched rows (after dropping NA specimen in the secondary files)
+  unmatched_period <- period_raw |>
+    dplyr::filter(!is.na(specimen)) |>
+    dplyr::anti_join(scan_raw, by = "specimen")
+
+  unmatched_demo <- demo_raw |>
+    dplyr::filter(!is.na(specimen)) |>
+    dplyr::anti_join(scan_raw, by = "specimen")
+
+  cat("\nUnmatched period rows:", nrow(unmatched_period), "\n")
+  if (nrow(unmatched_period) > 0) print(head(unmatched_period))
+
+  cat("Unmatched demographics rows:", nrow(unmatched_demo), "\n")
+  if (nrow(unmatched_demo) > 0) print(head(unmatched_demo))
+
+  # Coverage
+  coverage <- combined |>
+    dplyr::summarise(
+      n_specimens  = dplyr::n(),
+      have_culture = sum(!is.na(culture)),
+      have_period  = sum(!is.na(period)),
+      have_sex     = sum(!is.na(sex))
+    )
+
+  cat("\nCoverage counts:\n"); print(coverage)
+
+  coverage_pct <- coverage |>
+    tidyr::pivot_longer(-n_specimens, names_to = "metric", values_to = "count") |>
+    dplyr::mutate(percent = round(100 * count / n_specimens, 1))
+
+  cat("\nCoverage percentages:\n"); print(coverage_pct)
+
+  # Specimens with no metadata
+  no_meta <- combined |>
+    dplyr::filter(is.na(culture) & is.na(period) & is.na(sex))
+
+  cat("\nSpecimens with zero added metadata:", nrow(no_meta), "\n")
+  if (nrow(no_meta) > 0) print(no_meta |> dplyr::select(specimen) |> head())
+
+  # NA counts
+  na_counts <- colSums(is.na(combined))
+  cat("\nNA counts per column:\n"); print(na_counts)
+
+  # Factor level overview (if already converted)
+  factor_levels <- lapply(
+    combined |> dplyr::select(dplyr::any_of(c("side","culture","period","sex"))),
+    function(x) if (is.factor(x)) levels(x) else NULL
+  )
+  cat("\nFactor levels (NULL means column not factor yet):\n")
+  print(factor_levels)
+
+  # Distribution of 'missing' numeric score (if present)
+  if ("missing" %in% names(combined)) {
+    cat("\nDistribution of 'missing' values:\n")
+    print(combined |> dplyr::count(missing) |> dplyr::arrange(missing))
+  }
+
+  invisible(list(
+    duplicates = list(
+      scan_raw = dup_scan_raw,
+      period_raw = dup_period_raw,
+      demo_raw = dup_demo_raw
+    ),
+    unmatched = list(
+      period = unmatched_period,
+      demo = unmatched_demo
+    ),
+    coverage = coverage,
+    coverage_pct = coverage_pct,
+    no_meta = no_meta,
+    na_counts = na_counts,
+    factor_levels = factor_levels
+  ))
+}
+
+# Example call (after you have all objects):
+diag_results <- run_metadata_diagnostics(
+  scan_raw   = scan_raw,
+  period_raw = period_raw,
+  demo_raw   = demo_raw,
+  scan       = scan,
+  period_tbl = period_tbl,
+  demo_tbl   = demo_tbl,
+  combined   = combined
+)
+
+```
+
 # Estimating `NA` using `estimate.missing()`
 
 When specimens were incomplete, the location of the missing LMs was estimated using the thin plate spline (TPS) option of the function `estimate.missing()` of the `geomorph` package. Up to a maximum of 5 landmarks per specimen were estimated, since reconstruction of mandibles with more than 5 missing landmarks has been shown to result in reconstruction error and bias [@godinho2020a]. **TODO** Population specific reference mean specimens were used to reconstruct incomplete specimens as using inadequate references may also lead to large estimation errors [@neeser2009].
@@ -316,9 +485,7 @@ estimateLMs <- estimate.missing(array3d, method = "TPS")
 
 Using the `gpapgen` function of the `geomorh` package, Generalized Procrustes Analysis (GPA) was used to superimpose all landmark configurations and remove the effects of location, size, and orientation on the raw coordinates. Using the `gm.prcomp` function of the `geomorph` package, Principal Component Analysis (PCA) was used to reduce dimensionality and examine shape differences between specimens.
 
-The resulting shape variables were then used to examine morphological variance and hypothetical similarities and/or differences between groups. Using the `geomorph2slicermorph2` function of the `SlicerMorphR` package, the variables were exported so they could be visualised in 3D slicer by warping a surface along the relevant PCs. There's a bug in this
-
-On 3D slicer,
+The resulting shape variables were then used to examine morphological variance and hypothetical similarities and/or differences between groups. Using the `geomorph2slicermorph2` function of the `SlicerMorphR` package, the variables were exported so they could be visualised in 3D slicer by warping a surface along the relevant PCs. There's a bug in this, so that I have to go into `analysis.json` and remove `""`, such that change `“ExcludedLM”: "[]"` is `“ExcludedLM”: []` and `“SemiLandmarks”: "[]"` is `“SemiLandmarks”: []` , before uploading the data into 3DSlicer. Question on 3DSlicer Community on [this](https://discourse.slicer.org/t/slicer-morph-gpa-interactive-3d-vizualization-cannot-warp-around-pcs/44416/2).
 
 ```{r gpa}
 # 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
@@ -364,9 +531,16 @@ Specimens were grouped based on chronology and region (i.e., Mesolithic Iberia, 
 
 TODO: check out on paper stuff to produce graphs on ggplot using `make_ggplot`;
 
-```{r stats, echo=FALSE}
+```{r stats, eval=FALSE}
 
-
+Y.gpa <- gpagen(plethodon$land, PrinAxes = FALSE)
+gdf <- geomorph.data.frame(Y.gpa)
+attributes(gdf) 
+gdf <- geomorph.data.frame(Y.gpa, 
+                           species = plethodon$species, 
+                           site = plethodon$site) attributes(gdf) 
+# Using geomorph.data.frame to facilitate analysis
+anova(procD.lm(coords ~ Csize + species * site, data = gdf))
 ```
 
 # References
