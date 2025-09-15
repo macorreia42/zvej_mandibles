@@ -1,0 +1,3 @@
+columnName	type	componentNames
+ID	string	
+Procrustes Distance	float	

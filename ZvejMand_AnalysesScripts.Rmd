@@ -338,9 +338,11 @@ names(landmark_list) <- specimen_ids
 # require same number of landmarks
 counts <- purrr::map_int(landmark_list, nrow)
 if (!all(counts == counts[1])) {
-  stop("Not all JSON files have the same number of landmarks. Counts:\n",
-       paste0(names(counts), ": ", counts, collapse = "\n"),
-       "\nIf you need padding, modify the script to pad shorter files with NA.")
+  stop(
+    "Not all JSON files have the same number of landmarks. Counts:\n",
+    paste0(names(counts), ": ", counts, collapse = "\n"),
+    "\nIf you need padding, modify the script to pad shorter files with NA."
+  )
 }
 
 p <- as.integer(counts[1])
@@ -348,11 +350,15 @@ k <- 3L
 n <- length(landmark_list)
 
 # build array3d
-array3d <- array(NA_real_, dim = c(p, k, n),
-                 dimnames = list(landmark = seq_len(p),
-                                 coord = c("X", "Y", "Z"),
-                                 specimen = names(landmark_list)))
-for (i in seq_along(landmark_list)) array3d[,,i] <- landmark_list[[i]]
+array3d <- array(NA_real_,
+  dim = c(p, k, n),
+  dimnames = list(
+    landmark = seq_len(p),
+    coord = c("X", "Y", "Z"),
+    specimen = names(landmark_list)
+  )
+)
+for (i in seq_along(landmark_list)) array3d[, , i] <- landmark_list[[i]]
 storage.mode(array3d) <- "double"
 
 # save RDS
@@ -360,24 +366,25 @@ rds_path <- file.path(derived_dir, "array3d.RDS")
 saveRDS(array3d, rds_path)
 
 # 7) Create CSV + Parquet from array3d in-memory, write to temp, upload to OSF, then remove temp files
-  df2d <- data.frame(
-    specimen = dimnames(array3d)$specimen, stringsAsFactors = FALSE)
-  for (i in seq_len(p)) {
-    df2d[[paste0("X", i)]] <- array3d[i, 1, ]
-    df2d[[paste0("Y", i)]] <- array3d[i, 2, ]
-    df2d[[paste0("Z", i)]] <- array3d[i, 3, ]
-  }
+df2d <- data.frame(
+  specimen = dimnames(array3d)$specimen, stringsAsFactors = FALSE
+)
+for (i in seq_len(p)) {
+  df2d[[paste0("X", i)]] <- array3d[i, 1, ]
+  df2d[[paste0("Y", i)]] <- array3d[i, 2, ]
+  df2d[[paste0("Z", i)]] <- array3d[i, 3, ]
+}
 
-  tmp_csv <- file.path(tempdir(), "landmarks.csv")
-  tmp_parquet <- file.path(tempdir(), "landmarks.parquet")
+tmp_csv <- file.path(tempdir(), "landmarks.csv")
+tmp_parquet <- file.path(tempdir(), "landmarks.parquet")
 
-  readr::write_csv(df2d, tmp_csv)
-  arrow::write_parquet(df2d, tmp_parquet)
+readr::write_csv(df2d, tmp_csv)
+arrow::write_parquet(df2d, tmp_parquet)
 
-  osfr::osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
-  osfr::osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
+osfr::osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
+osfr::osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
 
-  unlink(c(tmp_csv, tmp_parquet), force = TRUE)
+unlink(c(tmp_csv, tmp_parquet), force = TRUE)
 ```
 
 ```{r safety, echo = FALSE}
