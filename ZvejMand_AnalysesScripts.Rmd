@@ -1,13 +1,9 @@
 ---
 title: "Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study"
-author: "Maria Ana Correia"
-date: '`r format(Sys.time(), "%d/%m/%Y")`'
 subtitle: "Analyses Scripts"
+author: "Maria Ana Correia"
+date: "`r format(Sys.time(), '%d/%m/%Y')`"
 output:
-  pdf_document:
-    latex_engine: xelatex
-    citation_package: default
-
   html_document:
     code_folding: hide
     code_link: true
@@ -15,9 +11,12 @@ output:
     toc: true
     toc_float: true
     df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+    citation_package: default
 bibliography: references.bib
 link-citations: true
-csl: apa-single-spaced
+csl: "apa-single-spaced"
 ---
 
 This file documents the geometric morphometrics of Zvejnieki mandibles. 3D landmarks were collected using 3DSlicer and statistical analyses used geomorph and SlicerMorph/SllicerMorphR [@adams2025; @rolfe2021].
@@ -67,7 +66,9 @@ cran_pkgs <- c(
   "arrow", # cross-language development platform to export .parquet
   "usethis", # automates repetitive tasks that arise during project setup
   "osfr", # interface for OSF
-  "geomorph" # geometric morphometrics
+  "geomorph", # geometric morphometrics
+  "jsonlite", # JSON parser and generator
+  "httr"
 )
 
 purrr::walk(cran_pkgs, load_or_install)
@@ -113,7 +114,7 @@ is_outlier <- function(x) {
 
 ```
 
-Fragmented specimens were virtually pieced together in 3D slicer using the Fiducial Registration Wizard [@godinho2020]. Then, in the Markups Module of 3DSlicer, coordinates were extracted from a total of 21 anatomical landmarks from the most complete hemi-mandible of each specimen to capture mandibular morphology [@godinho2022]. The use of left hemimandibles was favoured, but because that was also the favoured side when sampling, the sample ended up even.
+Fragmented specimens were virtually pieced together in 3D slicer using the Fiducial Registration Wizard [@godinho2020]. Then, in the Markups Module of 3DSlicer, coordinates were extracted from a total of 21 anatomical landmarks from the most complete hemi-mandible of each specimen to capture mandibular morphology [@godinho2022]. The use of left hemimandibles was favoured, but because that was also the favoured side when sampling, theere were less left mandibles by the end of the process. Landmark coordinates of left mandibles were reflected to look like right (see Obsidian 3D Data)
 
 # Preparing Landmark Data for `geomorph`
 
@@ -125,11 +126,11 @@ We implemented two parallel workflows for preparing landmark data into the forma
 2.  **From `.csv` files**\
     Landmark coordinates saved as CSVs were read into matrices and similarly stacked into a 3D array with the same dimensional structure.
 
-Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1]. Some safety checks were also included to ensure that the produced dataset adheres to `geomorph` criteria.
+Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1]. Some safety checks were also included to ensure that the produced dataset adheres to `geomorph` criteria. THIS FAILED BECAUSE IT ONLY DOWNLODS 84 files but there are 87.
 
 [^1]: in the package `osfr`, PATs are required to upload files, create projects/components, access information about your private projects, or download files in your private projects. PATs are not required for accessing information about public projects or downloading public files, but authentication with a PAT will increase the rate limit on the API
 
-```{r variables}
+```{r variables0, eval = FALSE}
 # --- Dual-mode OSF pipeline for landmarks ---
 # Project vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses: a75wu
 
@@ -152,8 +153,9 @@ if (allow_upload) {
 
   # 1) Retrieve JSON files from Raw Data component
   json_files <- raw_node |>
-    osfr::osf_ls_files() |>
-    dplyr::filter(grepl("\\.json$", name, ignore.case = TRUE))
+  osfr::osf_ls_files(n = Inf) |>
+  dplyr::filter(grepl("\\.json$", name, ignore.case = TRUE)) %>%
+  dplyr::distinct(id, .keep_all = TRUE)
 
   # 2) Download JSON files to raw_dir
   osfr::osf_download(json_files, path = raw_dir, conflicts = "overwrite")
@@ -303,7 +305,142 @@ array_report <- function(array3d) {
 array_report(array3d)
 ```
 
-```{r groups, eval = FALSE}
+```{r variables, echo = FALSE}
+# --- Directories ---
+raw_dir <- "data/raw"
+derived_dir <- "data/derived"
+usethis::use_directory(raw_dir)
+usethis::use_directory(derived_dir)
+
+derived_node <- osfr::osf_retrieve_node("9fnsp")
+raw_node <- osfr::osf_retrieve_node("kwafd")
+
+# list json files
+json_paths <- list.files(raw_dir, pattern = "\\.json$", full.names = TRUE)
+if (length(json_paths) == 0) stop("No .json files found in ", raw_dir)
+specimen_ids <- tools::file_path_sans_ext(basename(json_paths))
+
+# reader (ensures numeric X,Y,Z; pads Z with NA if missing)
+read_lmk <- function(path) {
+  m <- SlicerMorphR::read.markups.json(path)
+  m <- as.matrix(m)
+  m <- apply(m, 2, as.numeric)
+  if (ncol(m) < 3) m <- cbind(m, Z = rep(NA_real_, nrow(m)))
+  m <- m[, 1:3, drop = FALSE]
+  colnames(m) <- c("X", "Y", "Z")
+  m
+}
+
+# read with purrr
+landmark_list <- purrr::map(json_paths, read_lmk)
+names(landmark_list) <- specimen_ids
+
+# require same number of landmarks
+counts <- purrr::map_int(landmark_list, nrow)
+if (!all(counts == counts[1])) {
+  stop("Not all JSON files have the same number of landmarks. Counts:\n",
+       paste0(names(counts), ": ", counts, collapse = "\n"),
+       "\nIf you need padding, modify the script to pad shorter files with NA.")
+}
+
+p <- as.integer(counts[1])
+k <- 3L
+n <- length(landmark_list)
+
+# build array3d
+array3d <- array(NA_real_, dim = c(p, k, n),
+                 dimnames = list(landmark = seq_len(p),
+                                 coord = c("X", "Y", "Z"),
+                                 specimen = names(landmark_list)))
+for (i in seq_along(landmark_list)) array3d[,,i] <- landmark_list[[i]]
+storage.mode(array3d) <- "double"
+
+# save RDS
+rds_path <- file.path(derived_dir, "array3d.RDS")
+saveRDS(array3d, rds_path)
+
+# 7) Create CSV + Parquet from array3d in-memory, write to temp, upload to OSF, then remove temp files
+  df2d <- data.frame(
+    specimen = dimnames(array3d)$specimen, stringsAsFactors = FALSE)
+  for (i in seq_len(p)) {
+    df2d[[paste0("X", i)]] <- array3d[i, 1, ]
+    df2d[[paste0("Y", i)]] <- array3d[i, 2, ]
+    df2d[[paste0("Z", i)]] <- array3d[i, 3, ]
+  }
+
+  tmp_csv <- file.path(tempdir(), "landmarks.csv")
+  tmp_parquet <- file.path(tempdir(), "landmarks.parquet")
+
+  readr::write_csv(df2d, tmp_csv)
+  arrow::write_parquet(df2d, tmp_parquet)
+
+  osfr::osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
+  osfr::osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
+
+  unlink(c(tmp_csv, tmp_parquet), force = TRUE)
+```
+
+```{r safety, echo = FALSE}
+# Safety checks chunk for R Markdown: define array_report() and run it on `array3d`.
+array_report <- function(array3d) {
+  is_num  <- is.numeric(array3d)
+  dims    <- dim(array3d)
+  ndims   <- if (is.null(dims)) 0L else length(dims)
+  p <- if (ndims >= 1) dims[1] else NA_integer_
+  k <- if (ndims >= 2) dims[2] else NA_integer_
+  n <- if (ndims >= 3) dims[3] else NA_integer_
+
+  has_3_dims   <- ndims == 3
+  coords_ok    <- isTRUE(k %in% c(2, 3))
+  spec_gt_coord <- isTRUE(n > k)
+
+  dn <- dimnames(array3d)
+  spec_names <- if (!is.null(dn) && length(dn) >= 3) dn[[3]] else NULL
+  has_spec_names <- !is.null(spec_names) &&
+    length(spec_names) == n &&
+    all(!is.na(spec_names)) &&
+    all(nzchar(spec_names))
+
+  if (is_num) {
+    na_count  <- sum(is.na(array3d))
+    nan_count <- sum(is.nan(array3d))
+    inf_count <- sum(is.infinite(array3d))
+  } else {
+    na_count  <- sum(is.na(array3d))
+    nan_count <- NA_integer_
+    inf_count <- NA_integer_
+  }
+
+  cat("Array checks\n")
+  cat("  Numeric: ", is_num, "\n", sep = "")
+  cat("  3 dims: ", has_3_dims, "  dims: ",
+      paste(ifelse(is.na(c(p, k, n)), "NA", c(p, k, n)), collapse = " x "),
+      "\n", sep = "")
+  cat("  Coords k in {2,3}: ", coords_ok, "\n", sep = "")
+  cat("  Specimen names present: ", has_spec_names, "\n", sep = "")
+  cat("  n specimens > n coords: ", spec_gt_coord, "\n", sep = "")
+  cat("  Non-finite values: NA=", na_count, ", NaN=", nan_count, ", Inf=", inf_count, "\n", sep = "")
+
+  invisible(list(
+    is_numeric = is_num,
+    has_3_dims = has_3_dims,
+    dims = c(p = p, k = k, n = n),
+    coords_ok = coords_ok,
+    has_specimen_names = has_spec_names,
+    specimens_gt_coords = spec_gt_coord,
+    nonfinite = list(na = na_count, nan = nan_count, inf = inf_count)
+  ))
+}
+
+# Execute checks (only if array3d exists)
+if (exists("array3d")) {
+  array_report(array3d)
+} else {
+  cat("array3d not found in the environment. Run the pipeline chunk first.\n")
+}
+```
+
+```{r groups, echo = FALSE}
 # THIS SHOULDN'T GO ON THE FINAL MARKDOWN
 normalize_specimen <- function(x) {
   x |>
@@ -501,7 +638,9 @@ SlicerMorphR::geomorph2slicermorph2(
   pca = pca,
   output.folder = derived_dir
 )
+```
 
+```{r oldOSF, eval=FALSE}
 # 4) upload to OSF if my OSF_PAT is present
 if (allow_upload) {
   cat("OSF PAT branch: uploading to OSF node 9fnsp\n")

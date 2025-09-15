@@ -11,7 +11,6 @@
 
 <meta name="author" content="Maria Ana Correia" />
 
-<meta name="date" content="2025-02-09" />
 
 <title>Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study</title>
 
@@ -2865,7 +2864,7 @@ border-radius: 0px;
 transition: the Zvejnieki case study</h1>
 <h3 class="subtitle">Analyses Scripts</h3>
 <h4 class="author">Maria Ana Correia</h4>
-<h4 class="date">02/09/2025</h4>
+<h4 class="date">15/09/2025</h4>
 
 </div>
 
@@ -2907,30 +2906,34 @@ load_or_install &lt;- function(pkg, github = NULL) {
 }</code></pre>
 <pre class="r"><code># CRAN packages
 cran_pkgs &lt;- c(
-  &quot;tidyverse&quot;, #everyday data analyses
-  &quot;styler&quot;, #source code formatter
-  &quot;formatR&quot;, #format output
-  &quot;arrow&quot;, #cross-language development platform to export .parquet
-  &quot;usethis&quot;, #automates repetitive tasks that arise during project setup
-   &quot;osfr&quot;, #interface for OSF
-  &quot;geomorph&quot; #geometric morphometrics
-  )
+  &quot;tidyverse&quot;, # everyday data analyses
+  &quot;styler&quot;, # source code formatter
+  &quot;formatR&quot;, # format output
+  &quot;arrow&quot;, # cross-language development platform to export .parquet
+  &quot;usethis&quot;, # automates repetitive tasks that arise during project setup
+  &quot;osfr&quot;, # interface for OSF
+  &quot;geomorph&quot;, # geometric morphometrics
+  &quot;jsonlite&quot;, # JSON parser and generator
+  &quot;httr&quot;
+)
 
 purrr::walk(cran_pkgs, load_or_install)
 
 # GitHub packages (supply the repo as github = &quot;user/repo&quot;)
 load_or_install(&quot;SlicerMorphR&quot;, github = &quot;SlicerMorph/SlicerMorphR&quot;)
-#import SlicerMorph dataset into R</code></pre>
+# import SlicerMorph dataset into R</code></pre>
 <pre class="r"><code>#!setting decimals
 fmt_decimals &lt;- function(decimals = 0) {
   function(x) format(x, nsmall = decimals, scientific = FALSE)
 }
-#graphical settings for ggplot
+# graphical settings for ggplot
 my_theme &lt;- theme(
   axis.text = element_text(size = 8, colour = &quot;black&quot;),
   # makes numbers smaller and black (consider final display)
-  axis.ticks = element_line(linewidth = 0.5,
-                            colour = &quot;black&quot;),
+  axis.ticks = element_line(
+    linewidth = 0.5,
+    colour = &quot;black&quot;
+  ),
   # same for ticks
   axis.title = element_text(size = 10),
   # and for axis titles
@@ -2938,10 +2941,11 @@ my_theme &lt;- theme(
   panel.background = element_blank(),
   panel.grid.major = element_blank(),
   panel.border = element_rect(
-    colour = &quot;black&quot;, fill = NA, size = 0.5)
+    colour = &quot;black&quot;, fill = NA, size = 0.5
+  )
 )
 
-#calculate outliers
+# calculate outliers
 is_outlier &lt;- function(x) {
   return(
     x &lt; quantile(x, 0.25, na.rm = TRUE) - 1.5 * IQR(x, na.rm = TRUE) |
@@ -2949,13 +2953,14 @@ is_outlier &lt;- function(x) {
   )
 }</code></pre>
 <p>Fragmented specimens were virtually pieced together in 3D slicer
-using the Fiducial Registration Wizard <span class="citation">(<a href="#ref-godinho2020">Godinho &amp; Gonçalves, 2020</a>)</span>. Then,
-in the Markups Module of 3DSlicer, coordinates were extracted from a
-total of 21 anatomical landmarks from the most complete hemi-mandible of
-each specimen to capture mandibular morphology <span class="citation">(<a href="#ref-godinho2022">Godinho et al.,
+using the Fiducial Registration Wizard <span class="citation">(<a href="#ref-godinho2020">R. M. Godinho &amp; Gonçalves, 2020</a>)</span>.
+Then, in the Markups Module of 3DSlicer, coordinates were extracted from
+a total of 21 anatomical landmarks from the most complete hemi-mandible
+of each specimen to capture mandibular morphology <span class="citation">(<a href="#ref-godinho2022">R. M. Godinho et al.,
 2022</a>)</span>. The use of left hemimandibles was favoured, but
-because that was also the favoured side when sampling, the sample ended
-up even.</p>
+because that was also the favoured side when sampling, theere were less
+left mandibles by the end of the process. Landmark coordinates of left
+mandibles were reflected to look like right (see Obsidian 3D Data)</p>
 <div id="preparing-landmark-data-for-geomorph" class="section level1">
 <h1>Preparing Landmark Data for <code>geomorph</code></h1>
 <p>We implemented two parallel workflows for preparing landmark data
@@ -2976,7 +2981,8 @@ stacked into a 3D array with the same dimensional structure.</p></li>
 <code>geomorph</code>, and use depends on whether user has access to raw
 (<code>.mark.json</code>) or derived (<code>.csv</code>) data on <a href="https://osf.io/vkat9/">OSF</a> <span class="citation">(<a href="#ref-foster2017">Foster &amp; Deardorff, 2017</a>)</span><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>. Some
 safety checks were also included to ensure that the produced dataset
-adheres to <code>geomorph</code> criteria.</p>
+adheres to <code>geomorph</code> criteria. THIS FAILED BECAUSE IT ONLY
+DOWNLODS 84 files but there are 87.</p>
 <pre class="r"><code># --- Dual-mode OSF pipeline for landmarks --- Project
 # vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses:
 # a75wu
@@ -2990,8 +2996,7 @@ usethis::use_directory(derived_dir)
 derived_node &lt;- osfr::osf_retrieve_node(&quot;9fnsp&quot;)
 raw_node &lt;- osfr::osf_retrieve_node(&quot;kwafd&quot;)
 
-# 5) Gate OSF uploads so they only run on my machine (no
-# interactive() so it works in Rmd)
+# 5) Gate OSF uploads so they only run on my machine
 allow_flag &lt;- tolower(Sys.getenv(&quot;ALLOW_OSF_UPLOAD&quot;))
 allow_upload &lt;- nzchar(Sys.getenv(&quot;OSF_PAT&quot;)) &amp;&amp; allow_flag %in%
     c(&quot;1&quot;, &quot;true&quot;, &quot;yes&quot;)
@@ -3002,8 +3007,9 @@ if (allow_upload) {
 
     # 1) Retrieve JSON files from Raw Data component
     json_files &lt;- raw_node |&gt;
-        osfr::osf_ls_files() |&gt;
-        dplyr::filter(grepl(&quot;\\.json$&quot;, name, ignore.case = TRUE))
+        osfr::osf_ls_files(n = Inf) |&gt;
+        dplyr::filter(grepl(&quot;\\.json$&quot;, name, ignore.case = TRUE)) %&gt;%
+        dplyr::distinct(id, .keep_all = TRUE)
 
     # 2) Download JSON files to raw_dir
     osfr::osf_download(json_files, path = raw_dir, conflicts = &quot;overwrite&quot;)
@@ -3089,9 +3095,9 @@ if (allow_upload) {
     # 5) Save array3d locally as RDS (only .RDS goes to
     # derived_dir)
     saveRDS(array3d, file.path(derived_dir, &quot;array3d.RDS&quot;))
-}</code></pre>
-<pre><code>## Authenticated with OSF PAT → building array from JSON</code></pre>
-<pre class="r"><code># --- Safety checks ---
+}
+
+# --- Safety checks ---
 array_report &lt;- function(array3d) {
     # Basic facts
     is_num &lt;- is.numeric(array3d)
@@ -3148,25 +3154,146 @@ array_report &lt;- function(array3d) {
 }
 
 array_report(array3d)</code></pre>
+<div data-pagedtable="false">
+<script data-pagedtable-source type="application/json">
+{"columns":[{"label":["name"],"name":[1],"type":["chr"],"align":["left"]},{"label":["id"],"name":[2],"type":["chr"],"align":["left"]},{"label":["meta"],"name":[3],"type":["list"],"align":["right"]}],"data":[{"1":"landmarks.csv","2":"68b4a0e5fb038679a95e5f5a","3":"<named list [3]>"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
+  </script>
+</div>
+<div data-pagedtable="false">
+<script data-pagedtable-source type="application/json">
+{"columns":[{"label":["name"],"name":[1],"type":["chr"],"align":["left"]},{"label":["id"],"name":[2],"type":["chr"],"align":["left"]},{"label":["meta"],"name":[3],"type":["list"],"align":["right"]}],"data":[{"1":"landmarks.parquet","2":"68b4a0ea3560139ce496af8a","3":"<named list [3]>"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
+  </script>
+</div>
 <pre><code>## Array checks
 ##   Numeric: TRUE
-##   3 dims: TRUE  dims: 21 x 3 x 10
+##   3 dims: TRUE  dims: 21 x 3 x 87
 ##   Coords k in {2,3}: TRUE
 ##   Specimen names present: TRUE
 ##   n specimens &gt; n coords: TRUE
-##   Non-finite values: NA=12, NaN=0, Inf=0</code></pre>
+##   Non-finite values: NA=414, NaN=0, Inf=0</code></pre>
+<pre><code>## Rows scan vs combined: 87 87 
+## 
+## No duplicates in scan_raw 
+## 
+## No duplicates in period_raw 
+## 
+## No duplicates in demo_raw 
+## 
+## Unmatched period rows: 22 
+## # A tibble: 6 × 19
+##   specimen    box   burial culture period labcode `14C`   `±` status  d13C  d15N
+##   &lt;chr&gt;       &lt;chr&gt; &lt;chr&gt;  &lt;chr&gt;   &lt;chr&gt;  &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;chr&gt;  &lt;dbl&gt; &lt;dbl&gt;
+## 1 ILH_Zvejni… 34-8  37     Narva   LM/EN  OxA-40…  6901    27 UNPUB… -23.8  12.7
+## 2 ILH_Zvejni… 34-17 56     Kunda   MM     OxA-40…  7161    27 UNPUB… -21.4   9.9
+## 3 ILH_Zvejni… 34-23 64     Kunda/… LM     NO DATE    NA    NA &lt;NA&gt;    NA    NA  
+## 4 ILH_Zvejni… 34-33 92     Narva   LM/EN  Hela-1…  6510    50 PUBLI… -22.9  12  
+## 5 ILH_Zvejni… 34-50 121    Narva   LM/EN  Ua-198…  6145    80 PUBLI… -23.1  10.9
+## 6 ILH_Zvejni… 34-51 122    Narva   LM/EN  OxA-59…  6395    75 PUBLI… -23.3  11.9
+## # ℹ 8 more variables: `C:N` &lt;dbl&gt;, ...13 &lt;lgl&gt;, ...14 &lt;lgl&gt;, ...15 &lt;lgl&gt;,
+## #   ...16 &lt;lgl&gt;, ...17 &lt;lgl&gt;, ...18 &lt;lgl&gt;, ...19 &lt;chr&gt;
+## Unmatched demographics rows: 20 
+## # A tibble: 6 × 2
+##   specimen                sex   
+##   &lt;chr&gt;                   &lt;chr&gt; 
+## 1 ILH_Zvejnieki_34.8.37   Male  
+## 2 ILH_Zvejnieki_34.17.56  Male  
+## 3 ILH_Zvejnieki_34.23.64  Male  
+## 4 ILH_Zvejnieki_34.33.92  Male  
+## 5 ILH_Zvejnieki_34.50.121 Female
+## 6 ILH_Zvejnieki_34.52.123 &lt;NA&gt;  
+## 
+## Coverage counts:
+## # A tibble: 1 × 4
+##   n_specimens have_culture have_period have_sex
+##         &lt;int&gt;        &lt;int&gt;       &lt;int&gt;    &lt;int&gt;
+## 1          87           74          77       75
+## 
+## Coverage percentages:
+## # A tibble: 3 × 4
+##   n_specimens metric       count percent
+##         &lt;int&gt; &lt;chr&gt;        &lt;int&gt;   &lt;dbl&gt;
+## 1          87 have_culture    74    85.1
+## 2          87 have_period     77    88.5
+## 3          87 have_sex        75    86.2
+## 
+## Specimens with zero added metadata: 1 
+## # A tibble: 1 × 1
+##   specimen                
+##   &lt;chr&gt;                   
+## 1 ILH_Zvejnieki_34.176.105
+## 
+## NA counts per column:
+## specimen     side  missing  culture   period      sex 
+##        0        0        0       13       10       12 
+## 
+## Factor levels (NULL means column not factor yet):
+## $side
+## [1] &quot;Left&quot;  &quot;Right&quot;
+## 
+## $culture
+## [1] &quot;Comb Ware&quot;   &quot;Corded Ware&quot; &quot;Kunda&quot;       &quot;Kunda/Narva&quot; &quot;Narva&quot;      
+## 
+## $period
+## [1] &quot;EIA&quot;    &quot;EN/MN&quot;  &quot;LBA/IA&quot; &quot;LM&quot;     &quot;LM/EN&quot;  &quot;LN&quot;     &quot;MM&quot;     &quot;MN&quot;    
+## 
+## $sex
+## [1] &quot;Female&quot; &quot;Male&quot;  
+## 
+## 
+## Distribution of &#39;missing&#39; values:
+## # A tibble: 6 × 2
+##   missing     n
+##     &lt;dbl&gt; &lt;int&gt;
+## 1       0    27
+## 2       1    17
+## 3       2    21
+## 4       3     9
+## 5       4    10
+## 6       5     3</code></pre>
+</div>
+<div id="estimating-na-using-estimate.missing" class="section level1">
+<h1>Estimating <code>NA</code> using
+<code>estimate.missing()</code></h1>
 <p>When specimens were incomplete, the location of the missing LMs was
-estimated using the thin plate spline (TPS) function
-(<code>estimate.missing()</code>) of the <code>geomorph</code>
-package.</p>
+estimated using the thin plate spline (TPS) option of the function
+<code>estimate.missing()</code> of the <code>geomorph</code> package. Up
+to a maximum of 5 landmarks per specimen were estimated, since
+reconstruction of mandibles with more than 5 missing landmarks has been
+shown to result in reconstruction error and bias <span class="citation">(<a href="#ref-godinho2020a">R. Godinho et al.,
+2020</a>)</span>. <strong>TODO</strong> Population specific reference
+mean specimens were used to reconstruct incomplete specimens as using
+inadequate references may also lead to large estimation errors <span class="citation">(<a href="#ref-neeser2009">Neeser et al.,
+2009</a>)</span>.</p>
 <pre class="r"><code># estimate.missing() WARNING: n &gt; k
 estimateLMs &lt;- estimate.missing(array3d, method = &quot;TPS&quot;)</code></pre>
+</div>
+<div id="conduct-gpa-using-geomorph-and-export-using-slicermorphr" class="section level1">
+<h1>Conduct GPA using <code>geomorph</code> and export using
+<code>SlicerMorphR</code></h1>
+<p>Using the <code>gpapgen</code> function of the <code>geomorh</code>
+package, Generalized Procrustes Analysis (GPA) was used to superimpose
+all landmark configurations and remove the effects of location, size,
+and orientation on the raw coordinates. Using the <code>gm.prcomp</code>
+function of the <code>geomorph</code> package, Principal Component
+Analysis (PCA) was used to reduce dimensionality and examine shape
+differences between specimens.</p>
+<p>The resulting shape variables were then used to examine morphological
+variance and hypothetical similarities and/or differences between
+groups. Using the <code>geomorph2slicermorph2</code> function of the
+<code>SlicerMorphR</code> package, the variables were exported so they
+could be visualised in 3D slicer by warping a surface along the relevant
+PCs. There’s a bug in this, so that I have to go into
+<code>analysis.json</code> and remove <code>&quot;&quot;</code>, such that change
+<code>“ExcludedLM”: &quot;[]&quot;</code> is <code>“ExcludedLM”: []</code> and
+<code>“SemiLandmarks”: &quot;[]&quot;</code> is <code>“SemiLandmarks”: []</code> ,
+before uploading the data into 3DSlicer. Question on 3DSlicer Community
+on <a href="https://discourse.slicer.org/t/slicer-morph-gpa-interactive-3d-vizualization-cannot-warp-around-pcs/44416/2">this</a>.</p>
 <pre class="r"><code># 1) GPA with fixed landmarks (ProcD = TRUE to
 # compute/return Procrustes distances)
 gpa &lt;- geomorph::gpagen(A = estimateLMs, ProcD = TRUE)</code></pre>
 <pre><code>## 
 ## Performing GPA
-##   |                                                                              |                                                                      |   0%  |                                                                              |==================                                                    |  25%  |                                                                              |===================================                                   |  50%  |                                                                              |======================================================================| 100%
+##   |                                                                              |                                                                      |   0%  |                                                                              |==================                                                    |  25%  |                                                                              |===================================                                   |  50%  |                                                                              |====================================================                  |  75%  |                                                                              |======================================================================| 100%
 ## 
 ## Making projections... Finished!</code></pre>
 <pre class="r"><code># 2) PCA on aligned coordinates
@@ -3175,9 +3302,8 @@ pca &lt;- geomorph::gm.prcomp(gpa$coords)
 # 3) Export SlicerMorph bundle to derived_dir Note:
 # argument renamed to &#39;output_folder&#39; per your current
 # SlicerMorphR version
-SlicerMorphR::geomorph2slicermorph2(gpa = gpa, pca = pca, output.folder = derived_dir)
-
-# 4) upload to OSF if my OSF_PAT is present
+SlicerMorphR::geomorph2slicermorph2(gpa = gpa, pca = pca, output.folder = derived_dir)</code></pre>
+<pre class="r"><code># 4) upload to OSF if my OSF_PAT is present
 if (allow_upload) {
     cat(&quot;OSF PAT branch: uploading to OSF node 9fnsp\n&quot;)
 
@@ -3195,11 +3321,40 @@ if (allow_upload) {
     cat(&quot;No OSF PAT branch: saved outputs locally in: &quot;, derived_dir,
         &quot;\n&quot;, sep = &quot;&quot;)
 }</code></pre>
-<pre><code>## OSF PAT branch: uploading to OSF node 9fnsp</code></pre>
-<p>TODO: upload to SlicerMorph again to see errors in placing landmarks
-and see if I can see shapes (video); check out on paper stuff to produce
-graphs on ggplot using <code>make_ggplot</code>; code not displaying on
-html and removed derived data folder from github</p>
+</div>
+<div id="conduct-statistical-analyses" class="section level1">
+<h1>Conduct statistical analyses</h1>
+<p>Specimens were grouped based on chronology and region (i.e.,
+Mesolithic Iberia, Levantine Chalcolithic, etc.). Potential differences
+in size (i.e., centroid size) were examined using the Kruskal–Wallis
+test. Shape differences were first tested using a nonparametric test
+Permutational Multivariate ANOVA (PERMANOVA) to assess potential
+multivariate shape differences in the different groups120. This was
+based on the first 29 PCs, which explain ~ 95% of the total variance and
+was implemented in Past121 using 10,000 permutations. The Kruskal–Wallis
+test (followed by post-hoc tests) was used to test for differences in
+the two first PCs, which were used together with surface warping to
+visualize shape differences across the groups. Kruskal–Wallis tests were
+implemented using the R package ggstatsplot122. The use of
+non-parametric testing was necessary for centroid size and PCs 1 and 2
+after the Shapiro–Wilk’s test revealed that the ANOVA assumption of
+normality of residuals was not met for size, and Levene’s test of
+homogeneity of variances was not met for shape. These tests, along with
+the Durbin Watson test for independence of residuals, were carried out
+in the car R package123. Lastly, the morphol.disparity function of the
+geomorph package111 was used to examine hypothetical differences in
+shape variance across groups (i.e., disparity using Procrustes
+distances).</p>
+<p>TODO: check out on paper stuff to produce graphs on ggplot using
+<code>make_ggplot</code>;</p>
+<pre class="r"><code>Y.gpa &lt;- gpagen(plethodon$land, PrinAxes = FALSE)
+gdf &lt;- geomorph.data.frame(Y.gpa)
+attributes(gdf) 
+gdf &lt;- geomorph.data.frame(Y.gpa, 
+                           species = plethodon$species, 
+                           site = plethodon$site) attributes(gdf) 
+# Using geomorph.data.frame to facilitate analysis
+anova(procD.lm(coords ~ Csize + species * site, data = gdf))</code></pre>
 </div>
 <div id="references" class="section level1">
 <h1>References</h1>
@@ -3226,6 +3381,17 @@ chalcolithic mandibular morphology: using geometric morphometrics to
 reconstruct incomplete specimens and analyse morphology. <em>Open
 Archaeology</em>, <em>8</em>(1), 536–549. <a href="https://doi.org/10.1515/opar-2022-0247">https://doi.org/10.1515/opar-2022-0247</a>
 </div>
+<div id="ref-godinho2020a" class="csl-entry">
+Godinho, R., O’Higgins, P., &amp; Gonçalves, C. (2020). Assessing the
+reliability of virtual reconstruction of mandibles. <em>American Journal
+of Physical Anthropology</em>, <em>172</em>(4), 723–734. <a href="https://doi.org/10.1002/ajpa.24095">https://doi.org/10.1002/ajpa.24095</a>
+</div>
+<div id="ref-neeser2009" class="csl-entry">
+Neeser, R., Ackermann, R. R., &amp; Gain, J. (2009). Comparing the
+accuracy and precision of three techniques used for estimating missing
+landmarks when reconstructing fossil hominin crania. <em>American
+Journal of Physical Anthropology</em>, <em>140</em>(1), 1–18. <a href="https://doi.org/10.1002/ajpa.21023">https://doi.org/10.1002/ajpa.21023</a>
+</div>
 <div id="ref-rolfe2021" class="csl-entry">
 Rolfe, S., Pieper, S., Porto, A., Diamond, K., Winchester, J., Shan, S.,
 Kirveslahti, H., Boyer, D., Summers, A., &amp; Maga, A. M. (2021).
@@ -3246,20 +3412,21 @@ analyse 3D morphology. <em>Methods in Ecology and Evolution</em>,
 ## [3] LC_MONETARY=Portuguese_Portugal.utf8 LC_NUMERIC=C                        
 ## [5] LC_TIME=Portuguese_Portugal.utf8    
 ## 
-## time zone: Europe/Lisbon
+## time zone: Europe/Berlin
 ## tzcode source: internal
 ## 
 ## attached base packages:
 ## [1] stats     graphics  grDevices utils     datasets  methods   base     
 ## 
 ## other attached packages:
-##  [1] SlicerMorphR_0.0.2.0000 jsonlite_2.0.0          geomorph_4.0.10        
-##  [4] Matrix_1.7-3            rgl_1.3.24              RRPP_2.1.2             
-##  [7] osfr_0.2.9              usethis_3.2.0           arrow_21.0.0.1         
-## [10] formatR_1.14            styler_1.10.3           lubridate_1.9.4        
-## [13] forcats_1.0.0           stringr_1.5.1           dplyr_1.1.4            
-## [16] purrr_1.1.0             readr_2.1.5             tidyr_1.3.1            
-## [19] tibble_3.3.0            ggplot2_3.5.2           tidyverse_2.0.0        
+##  [1] SlicerMorphR_0.0.2.0000 httr_1.4.7              jsonlite_2.0.0         
+##  [4] geomorph_4.0.10         Matrix_1.7-3            rgl_1.3.24             
+##  [7] RRPP_2.1.2              osfr_0.2.9              usethis_3.2.0          
+## [10] arrow_21.0.0.1          formatR_1.14            styler_1.10.3          
+## [13] lubridate_1.9.4         forcats_1.0.0           stringr_1.5.1          
+## [16] dplyr_1.1.4             purrr_1.1.0             readr_2.1.5            
+## [19] tidyr_1.3.1             tibble_3.3.0            ggplot2_3.5.2          
+## [22] tidyverse_2.0.0        
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] gtable_0.3.6       xfun_0.53          bslib_0.9.0        htmlwidgets_1.6.4 
@@ -3271,9 +3438,9 @@ analyse 3D morphology. <em>Methods in Ecology and Evolution</em>,
 ## [25] jquerylib_0.1.4    R.utils_2.13.0     cachem_1.1.0       mime_0.13         
 ## [29] nlme_3.1-168       tidyselect_1.2.1   digest_0.6.37      stringi_1.8.7     
 ## [33] rprojroot_2.1.1    fastmap_1.2.0      grid_4.5.1         cli_3.6.5         
-## [37] magrittr_2.0.3     base64enc_0.1-3    triebeard_0.4.1    crul_1.6.0        
-## [41] ape_5.8-1          withr_3.0.2        scales_1.4.0       bit64_4.6.0-1     
-## [45] timechange_0.3.0   rmarkdown_2.29     httr_1.4.7         jpeg_0.1-11       
+## [37] magrittr_2.0.3     base64enc_0.1-3    utf8_1.2.6         triebeard_0.4.1   
+## [41] crul_1.6.0         ape_5.8-1          withr_3.0.2        scales_1.4.0      
+## [45] bit64_4.6.0-1      timechange_0.3.0   rmarkdown_2.29     jpeg_0.1-11       
 ## [49] bit_4.6.0          R.methodsS3_1.8.2  hms_1.1.3          memoise_2.0.1     
 ## [53] evaluate_1.0.5     knitr_1.50         urltools_1.7.3.1   rlang_1.1.6       
 ## [57] Rcpp_1.1.0         glue_1.8.0         httpcode_0.3.0     vroom_1.6.5       
