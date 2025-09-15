@@ -1,0 +1,553 @@
+---
+title: "Mandibular shape in the Meso-Neolithic transition: the Zvejnieki case study"
+author: "Maria Ana Correia"
+date: '`r format(Sys.time(), "%d/%m/%Y")`'
+subtitle: "Analyses Scripts"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    citation_package: default
+
+  html_document:
+    code_folding: hide
+    code_link: true
+    keep_md: true
+    toc: true
+    toc_float: true
+    df_print: paged
+bibliography: references.bib
+link-citations: true
+csl: apa-single-spaced
+---
+
+This file documents the geometric morphometrics of Zvejnieki mandibles. 3D landmarks were collected using 3DSlicer and statistical analyses used geomorph and SlicerMorph/SllicerMorphR [@adams2025; @rolfe2021].
+
+```{r setup}
+#this makes images save in folder in directory
+knitr::opts_chunk$set(
+  echo = TRUE, #shows code
+  warning = FALSE, message = FALSE, #stops warning messages
+  fig.path = "images/",
+  dev = c("svg", "png", "tiff"), #saves figures as svg, tiff, and png in images folder
+  dpi = 500, #publishing quality for combination art (Elsevier)
+  tidy.opts=list(width.cutoff=60), # stops code from running off page
+  tidy=TRUE
+)
+
+# function to load or install from CRAN or GitHub
+# installs missing packages when sharing with others
+load_or_install <- function(pkg, github = NULL) {
+  # If package not available, install it
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    if (is.null(github)) {
+      # Install from CRAN
+      install.packages(pkg, dependencies = TRUE)
+    } else {
+      # Install from GitHub (needs remotes package)
+      if (!requireNamespace("remotes", quietly = TRUE)) {
+        install.packages("remotes")
+      }
+      remotes::install_github(github, dependencies = TRUE)
+    }
+  }
+  # Finally load it
+  suppressPackageStartupMessages(
+    library(pkg, character.only = TRUE)
+  )
+}
+
+```
+
+```{r packages}
+# CRAN packages
+cran_pkgs <- c(
+  "tidyverse", # everyday data analyses
+  "styler", # source code formatter
+  "formatR", # format output
+  "arrow", # cross-language development platform to export .parquet
+  "usethis", # automates repetitive tasks that arise during project setup
+  "osfr", # interface for OSF
+  "geomorph" # geometric morphometrics
+)
+
+purrr::walk(cran_pkgs, load_or_install)
+
+# GitHub packages (supply the repo as github = "user/repo")
+load_or_install("SlicerMorphR", github = "SlicerMorph/SlicerMorphR")
+# import SlicerMorph dataset into R
+
+
+```
+
+```{r functions}
+#!setting decimals
+fmt_decimals <- function(decimals = 0) {
+  function(x) format(x, nsmall = decimals, scientific = FALSE)
+}
+# graphical settings for ggplot
+my_theme <- theme(
+  axis.text = element_text(size = 8, colour = "black"),
+  # makes numbers smaller and black (consider final display)
+  axis.ticks = element_line(
+    linewidth = 0.5,
+    colour = "black"
+  ),
+  # same for ticks
+  axis.title = element_text(size = 10),
+  # and for axis titles
+  panel.grid.minor = element_blank(),
+  panel.background = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_rect(
+    colour = "black", fill = NA, size = 0.5
+  )
+)
+
+# calculate outliers
+is_outlier <- function(x) {
+  return(
+    x < quantile(x, 0.25, na.rm = TRUE) - 1.5 * IQR(x, na.rm = TRUE) |
+      x > quantile(x, 0.75, na.rm = TRUE) + 1.5 * IQR(x, na.rm = TRUE)
+  )
+}
+
+```
+
+Fragmented specimens were virtually pieced together in 3D slicer using the Fiducial Registration Wizard [@godinho2020]. Then, in the Markups Module of 3DSlicer, coordinates were extracted from a total of 21 anatomical landmarks from the most complete hemi-mandible of each specimen to capture mandibular morphology [@godinho2022]. The use of left hemimandibles was favoured, but because that was also the favoured side when sampling, the sample ended up even.
+
+# Preparing Landmark Data for `geomorph`
+
+We implemented two parallel workflows for preparing landmark data into the format required by the `geomorph` package. The goal in both cases is to produce a 3D numeric array with dimensions *(p landmarks × k coordinates × n specimens)*, suitable for downstream analyses.
+
+1.  **From `.mark.json` files**\
+    Individual specimen landmark files produced by PAT were parsed from JSON into matrices of coordinates. These were then stacked into a 3D array, with each slice representing one specimen.
+
+2.  **From `.csv` files**\
+    Landmark coordinates saved as CSVs were read into matrices and similarly stacked into a 3D array with the same dimensional structure.
+
+Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1]. Some safety checks were also included to ensure that the produced dataset adheres to `geomorph` criteria.
+
+[^1]: in the package `osfr`, PATs are required to upload files, create projects/components, access information about your private projects, or download files in your private projects. PATs are not required for accessing information about public projects or downloading public files, but authentication with a PAT will increase the rate limit on the API
+
+```{r variables}
+# --- Dual-mode OSF pipeline for landmarks ---
+# Project vkat9 | Raw Data: kwafd | Derived Data: 9fnsp | Analyses: a75wu
+
+# --- Directories ---
+raw_dir <- "data/raw"
+derived_dir <- "data/derived"
+usethis::use_directory(raw_dir)
+usethis::use_directory(derived_dir)
+
+derived_node <- osfr::osf_retrieve_node("9fnsp")
+raw_node <- osfr::osf_retrieve_node("kwafd")
+
+# 5) Gate OSF uploads so they only run on my machine
+allow_flag <- tolower(Sys.getenv("ALLOW_OSF_UPLOAD"))
+allow_upload <- nzchar(Sys.getenv("OSF_PAT")) && allow_flag %in% c("1", "true", "yes")
+
+if (allow_upload) {
+  cat("Authenticated with OSF PAT → building array from JSON\n")
+  osfr::osf_auth(Sys.getenv("OSF_PAT"))
+
+  # 1) Retrieve JSON files from Raw Data component
+  json_files <- raw_node |>
+    osfr::osf_ls_files() |>
+    dplyr::filter(grepl("\\.json$", name, ignore.case = TRUE))
+
+  # 2) Download JSON files to raw_dir
+  osfr::osf_download(json_files, path = raw_dir, conflicts = "overwrite")
+
+  # 3) Specimen IDs from filenames
+  json_paths <- list.files(raw_dir, pattern = "\\.json$", full.names = TRUE)
+  specimen_ids <- tools::file_path_sans_ext(basename(json_paths))
+
+  # 4) Read JSON into numeric matrices
+  read_lmk_matrix <- function(path) {
+    m <- SlicerMorphR::read.markups.json(path)
+    m <- as.matrix(m)
+    m <- apply(m, 2, as.numeric)
+    if (is.null(colnames(m))) colnames(m) <- c("X", "Y", "Z")
+    m
+  }
+  landmark_list <- purrr::map(json_paths, read_lmk_matrix) |>
+    purrr::set_names(specimen_ids)
+
+  # 5) Build array3d
+  p <- nrow(landmark_list[[1]])
+  k <- 3
+  n <- length(landmark_list)
+
+  array3d <- array(
+    NA_real_,
+    dim = c(p, k, n),
+    dimnames = list(
+      landmark = seq_len(p),
+      coord    = c("X", "Y", "Z"),
+      specimen = names(landmark_list)
+    )
+  )
+  for (i in seq_along(landmark_list)) array3d[, , i] <- landmark_list[[i]]
+  storage.mode(array3d) <- "double"
+
+  # 6) Save array3d locally as RDS (only .RDS goes to derived_dir)
+  saveRDS(array3d, file.path(derived_dir, "array3d.RDS"))
+
+  # 7) Create CSV + Parquet from array3d in-memory, write to temp, upload to OSF, then remove temp files
+  df2d <- data.frame(
+    specimen = dimnames(array3d)$specimen, stringsAsFactors = FALSE)
+  for (i in seq_len(p)) {
+    df2d[[paste0("X", i)]] <- array3d[i, 1, ]
+    df2d[[paste0("Y", i)]] <- array3d[i, 2, ]
+    df2d[[paste0("Z", i)]] <- array3d[i, 3, ]
+  }
+
+  tmp_csv <- file.path(tempdir(), "landmarks.csv")
+  tmp_parquet <- file.path(tempdir(), "landmarks.parquet")
+
+  readr::write_csv(df2d, tmp_csv)
+  arrow::write_parquet(df2d, tmp_parquet)
+
+  osfr::osf_upload(derived_node, path = tmp_csv, conflicts = "overwrite")
+  osfr::osf_upload(derived_node, path = tmp_parquet, conflicts = "overwrite")
+
+  unlink(c(tmp_csv, tmp_parquet), force = TRUE)
+} else {
+  # --- No PAT branch ---
+  cat("No OSF PAT → rebuilding array from Derived Data CSV on OSF\n")
+
+  # 1) Locate CSV on OSF (do not save locally in project)
+  csv_file <- derived_node |>
+    osfr::osf_ls_files() |>
+    dplyr::filter(name == "landmarks.csv")
+
+  # 2) Download CSV to tempdir and read from there
+  dl <- osfr::osf_download(csv_file, path = tempdir(), conflicts = "overwrite")
+  csv_path <- dl$local_path
+  df2d <- readr::read_csv(csv_path, show_col_types = FALSE)
+
+  # 3) Rebuild array3d from CSV
+  df_matrix <- as.matrix(dplyr::select(df2d, -specimen))
+
+  p <- ncol(df_matrix) / 3
+  k <- 3
+  n <- nrow(df_matrix)
+
+  array3d <- geomorph::arrayspecs(df_matrix, p = p, k = k)
+
+  # 4) Set dimnames identical to PAT branch
+  dimnames(array3d)[[1]] <- seq_len(p) # landmarks
+  dimnames(array3d)[[2]] <- c("X", "Y", "Z") # coords
+  dimnames(array3d)[[3]] <- df2d$specimen # specimen names
+
+  # 5) Save array3d locally as RDS (only .RDS goes to derived_dir)
+  saveRDS(array3d, file.path(derived_dir, "array3d.RDS"))
+}
+
+# --- Safety checks ---
+array_report <- function(array3d) {
+  # Basic facts
+  is_num  <- is.numeric(array3d)
+  dims    <- dim(array3d)
+  ndims   <- if (is.null(dims)) 0L else length(dims)
+  p <- if (ndims >= 1) dims[1] else NA_integer_
+  k <- if (ndims >= 2) dims[2] else NA_integer_
+  n <- if (ndims >= 3) dims[3] else NA_integer_
+
+  has_3_dims   <- ndims == 3
+  coords_ok    <- isTRUE(k %in% c(2, 3))
+  spec_gt_coord <- isTRUE(n > k)
+
+  # Specimen names in 3rd dim
+  dn <- dimnames(array3d)
+  spec_names <- if (!is.null(dn) && length(dn) >= 3) dn[[3]] else NULL
+  has_spec_names <- !is.null(spec_names) &&
+    length(spec_names) == n &&
+    all(!is.na(spec_names)) &&
+    all(nzchar(spec_names))
+
+  # Non-finite counts (don’t fail if present; just report)
+  if (is_num) {
+    na_count  <- sum(is.na(array3d))
+    nan_count <- sum(is.nan(array3d))
+    inf_count <- sum(is.infinite(array3d))
+  } else {
+    # is.nan/is.infinite are numeric-only; report NA if not numeric
+    na_count  <- sum(is.na(array3d))
+    nan_count <- NA_integer_
+    inf_count <- NA_integer_
+  }
+
+  # Print a simple, compact report
+  cat("Array checks\n")
+  cat("  Numeric: ", is_num, "\n", sep = "")
+  cat("  3 dims: ", has_3_dims, "  dims: ",
+      paste(ifelse(is.na(c(p, k, n)), "NA", c(p, k, n)), collapse = " x "),
+      "\n", sep = "")
+  cat("  Coords k in {2,3}: ", coords_ok, "\n", sep = "")
+  cat("  Specimen names present: ", has_spec_names, "\n", sep = "")
+  cat("  n specimens > n coords: ", spec_gt_coord, "\n", sep = "")
+  cat("  Non-finite values: NA=", na_count, ", NaN=", nan_count, ", Inf=", inf_count, "\n", sep = "")
+
+  invisible(list(
+    is_numeric = is_num,
+    has_3_dims = has_3_dims,
+    dims = c(p = p, k = k, n = n),
+    coords_ok = coords_ok,
+    has_specimen_names = has_spec_names,
+    specimens_gt_coords = spec_gt_coord,
+    nonfinite = list(na = na_count, nan = nan_count, inf = inf_count)
+  ))
+}
+
+array_report(array3d)
+```
+
+```{r groups, eval = FALSE}
+# THIS SHOULDN'T GO ON THE FINAL MARKDOWN
+normalize_specimen <- function(x) {
+  x |>
+    as.character() |>
+    stringr::str_trim() |>
+    stringr::str_squish()
+}
+
+# 1. Master scan table (keep specimen, side, missing)
+scan <- readr::read_csv("data/raw/scan.csv", show_col_types = FALSE) |>
+  dplyr::mutate(specimen = normalize_specimen(specimen)) |>
+  dplyr::select(specimen, side, missing)
+
+# 2. Period / culture table
+period_tbl <- readr::read_csv("data/raw/period.csv", show_col_types = FALSE) |>
+  dplyr::mutate(specimen = normalize_specimen(specimen)) |>
+  dplyr::filter(!is.na(specimen)) |>
+  dplyr::select(specimen, culture, period) |>
+  dplyr::distinct(specimen, .keep_all = TRUE)
+
+# 3. Demographics (sex) table
+demo_tbl <- readr::read_csv("data/raw/demographics.csv", show_col_types = FALSE) |>
+  dplyr::mutate(specimen = normalize_specimen(specimen)) |>
+  dplyr::filter(!is.na(specimen)) |>
+  dplyr::select(specimen, sex) |>
+  dplyr::distinct(specimen, .keep_all = TRUE)
+
+# 4. Join (keep all scan specimens)
+combined <- scan |>
+  dplyr::left_join(period_tbl, by = "specimen") |>
+  dplyr::left_join(demo_tbl, by = "specimen") |>
+  dplyr::mutate(
+    missing = as.numeric(missing),
+    side = factor(side),
+    culture = factor(culture),
+    period = factor(period),
+    sex = factor(sex),
+    specimen = as.character(specimen)
+  ) |>
+  dplyr::select(specimen, side, missing, culture, period, sex)
+
+# 5. Write output
+readr::write_csv(combined, "data/derived/specimen_metadata.csv")
+
+#-----DIAGNOSTICS----
+scan_raw   <- readr::read_csv("data/raw/scan.csv", show_col_types = FALSE)
+period_raw <- readr::read_csv("data/raw/period.csv", show_col_types = FALSE)
+demo_raw   <- readr::read_csv("data/raw/demographics.csv", show_col_types = FALSE)
+
+run_metadata_diagnostics <- function(
+    scan_raw,
+    period_raw,
+    demo_raw,
+    scan,        # processed scan table used to build 'combined'
+    period_tbl,  # processed period table used in joins
+    demo_tbl,    # processed demographics table used in joins
+    combined     # final joined table
+) {
+
+  cat("Rows scan vs combined:", nrow(scan), nrow(combined), "\n")
+  stopifnot(nrow(scan) == nrow(combined))
+
+  # Helper to report duplicates
+  report_dups <- function(df, label) {
+    dups <- df |>
+      dplyr::count(specimen) |>
+      dplyr::filter(!is.na(specimen), n > 1)
+    if (nrow(dups) > 0) {
+      cat("\nDuplicates in", label, ":\n")
+      print(dups)
+    } else {
+      cat("\nNo duplicates in", label, "\n")
+    }
+    dups
+  }
+
+  dup_scan_raw   <- report_dups(scan_raw,   "scan_raw")
+  dup_period_raw <- report_dups(period_raw, "period_raw")
+  dup_demo_raw   <- report_dups(demo_raw,   "demo_raw")
+
+  # Unmatched rows (after dropping NA specimen in the secondary files)
+  unmatched_period <- period_raw |>
+    dplyr::filter(!is.na(specimen)) |>
+    dplyr::anti_join(scan_raw, by = "specimen")
+
+  unmatched_demo <- demo_raw |>
+    dplyr::filter(!is.na(specimen)) |>
+    dplyr::anti_join(scan_raw, by = "specimen")
+
+  cat("\nUnmatched period rows:", nrow(unmatched_period), "\n")
+  if (nrow(unmatched_period) > 0) print(head(unmatched_period))
+
+  cat("Unmatched demographics rows:", nrow(unmatched_demo), "\n")
+  if (nrow(unmatched_demo) > 0) print(head(unmatched_demo))
+
+  # Coverage
+  coverage <- combined |>
+    dplyr::summarise(
+      n_specimens  = dplyr::n(),
+      have_culture = sum(!is.na(culture)),
+      have_period  = sum(!is.na(period)),
+      have_sex     = sum(!is.na(sex))
+    )
+
+  cat("\nCoverage counts:\n"); print(coverage)
+
+  coverage_pct <- coverage |>
+    tidyr::pivot_longer(-n_specimens, names_to = "metric", values_to = "count") |>
+    dplyr::mutate(percent = round(100 * count / n_specimens, 1))
+
+  cat("\nCoverage percentages:\n"); print(coverage_pct)
+
+  # Specimens with no metadata
+  no_meta <- combined |>
+    dplyr::filter(is.na(culture) & is.na(period) & is.na(sex))
+
+  cat("\nSpecimens with zero added metadata:", nrow(no_meta), "\n")
+  if (nrow(no_meta) > 0) print(no_meta |> dplyr::select(specimen) |> head())
+
+  # NA counts
+  na_counts <- colSums(is.na(combined))
+  cat("\nNA counts per column:\n"); print(na_counts)
+
+  # Factor level overview (if already converted)
+  factor_levels <- lapply(
+    combined |> dplyr::select(dplyr::any_of(c("side","culture","period","sex"))),
+    function(x) if (is.factor(x)) levels(x) else NULL
+  )
+  cat("\nFactor levels (NULL means column not factor yet):\n")
+  print(factor_levels)
+
+  # Distribution of 'missing' numeric score (if present)
+  if ("missing" %in% names(combined)) {
+    cat("\nDistribution of 'missing' values:\n")
+    print(combined |> dplyr::count(missing) |> dplyr::arrange(missing))
+  }
+
+  invisible(list(
+    duplicates = list(
+      scan_raw = dup_scan_raw,
+      period_raw = dup_period_raw,
+      demo_raw = dup_demo_raw
+    ),
+    unmatched = list(
+      period = unmatched_period,
+      demo = unmatched_demo
+    ),
+    coverage = coverage,
+    coverage_pct = coverage_pct,
+    no_meta = no_meta,
+    na_counts = na_counts,
+    factor_levels = factor_levels
+  ))
+}
+
+# Example call (after you have all objects):
+diag_results <- run_metadata_diagnostics(
+  scan_raw   = scan_raw,
+  period_raw = period_raw,
+  demo_raw   = demo_raw,
+  scan       = scan,
+  period_tbl = period_tbl,
+  demo_tbl   = demo_tbl,
+  combined   = combined
+)
+
+```
+
+# Estimating `NA` using `estimate.missing()`
+
+When specimens were incomplete, the location of the missing LMs was estimated using the thin plate spline (TPS) option of the function `estimate.missing()` of the `geomorph` package. Up to a maximum of 5 landmarks per specimen were estimated, since reconstruction of mandibles with more than 5 missing landmarks has been shown to result in reconstruction error and bias [@godinho2020a]. **TODO** Population specific reference mean specimens were used to reconstruct incomplete specimens as using inadequate references may also lead to large estimation errors [@neeser2009].
+
+```{r estimate}
+#estimate.missing() WARNING: n > k
+estimateLMs <- estimate.missing(array3d, method = "TPS")
+```
+
+# Conduct GPA using `geomorph` and export using `SlicerMorphR`
+
+Using the `gpapgen` function of the `geomorh` package, Generalized Procrustes Analysis (GPA) was used to superimpose all landmark configurations and remove the effects of location, size, and orientation on the raw coordinates. Using the `gm.prcomp` function of the `geomorph` package, Principal Component Analysis (PCA) was used to reduce dimensionality and examine shape differences between specimens.
+
+The resulting shape variables were then used to examine morphological variance and hypothetical similarities and/or differences between groups. Using the `geomorph2slicermorph2` function of the `SlicerMorphR` package, the variables were exported so they could be visualised in 3D slicer by warping a surface along the relevant PCs. There's a bug in this, so that I have to go into `analysis.json` and remove `""`, such that change `“ExcludedLM”: "[]"` is `“ExcludedLM”: []` and `“SemiLandmarks”: "[]"` is `“SemiLandmarks”: []` , before uploading the data into 3DSlicer. Question on 3DSlicer Community on [this](https://discourse.slicer.org/t/slicer-morph-gpa-interactive-3d-vizualization-cannot-warp-around-pcs/44416/2).
+
+```{r gpa}
+# 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
+gpa <- geomorph::gpagen(A = estimateLMs, ProcD = TRUE)
+
+# 2) PCA on aligned coordinates
+pca <- geomorph::gm.prcomp(gpa$coords)
+
+# 3) Export SlicerMorph bundle to derived_dir
+# Note: argument renamed to 'output_folder' per your current SlicerMorphR version
+SlicerMorphR::geomorph2slicermorph2(
+  gpa = gpa,
+  pca = pca,
+  output.folder = derived_dir
+)
+
+# 4) upload to OSF if my OSF_PAT is present
+if (allow_upload) {
+  cat("OSF PAT branch: uploading to OSF node 9fnsp\n")
+
+  # Upload all non-RDS artifacts from derived_dir (recursively), overwrite on conflict
+  files_to_upload <- list.files(
+    derived_dir,
+    recursive = TRUE,
+    full.names = TRUE,
+    include.dirs = FALSE
+  )
+  files_to_upload <- files_to_upload[
+    !grepl("\\.rds$", files_to_upload, ignore.case = TRUE)
+    ]
+
+  for (f in files_to_upload) {
+    osfr::osf_upload(derived_node, path = f, conflicts = "overwrite")
+  }
+} else {
+  cat("No OSF PAT branch: saved outputs locally in: ", derived_dir, "\n", sep = "")
+}
+```
+
+# Conduct statistical analyses
+
+Specimens were grouped based on chronology and region (i.e., Mesolithic Iberia, Levantine Chalcolithic, etc.). Potential differences in size (i.e., centroid size) were examined using the Kruskal–Wallis test. Shape differences were first tested using a nonparametric test Permutational Multivariate ANOVA (PERMANOVA) to assess potential multivariate shape differences in the different groups120. This was based on the first 29 PCs, which explain \~ 95% of the total variance and was implemented in Past121 using 10,000 permutations. The Kruskal–Wallis test (followed by post-hoc tests) was used to test for differences in the two first PCs, which were used together with surface warping to visualize shape differences across the groups. Kruskal–Wallis tests were implemented using the R package ggstatsplot122. The use of non-parametric testing was necessary for centroid size and PCs 1 and 2 after the Shapiro–Wilk’s test revealed that the ANOVA assumption of normality of residuals was not met for size, and Levene’s test of homogeneity of variances was not met for shape. These tests, along with the Durbin Watson test for independence of residuals, were carried out in the car R package123. Lastly, the morphol.disparity function of the geomorph package111 was used to examine hypothetical differences in shape variance across groups (i.e., disparity using Procrustes distances).
+
+TODO: check out on paper stuff to produce graphs on ggplot using `make_ggplot`;
+
+```{r stats, eval=FALSE}
+
+Y.gpa <- gpagen(plethodon$land, PrinAxes = FALSE)
+gdf <- geomorph.data.frame(Y.gpa)
+attributes(gdf) 
+gdf <- geomorph.data.frame(Y.gpa, 
+                           species = plethodon$species, 
+                           site = plethodon$site) attributes(gdf) 
+# Using geomorph.data.frame to facilitate analysis
+anova(procD.lm(coords ~ Csize + species * site, data = gdf))
+```
+
+# References
+
+::: {#refs}
+:::
+
+```{r  session, echo=FALSE}
+sessionInfo()
+```
