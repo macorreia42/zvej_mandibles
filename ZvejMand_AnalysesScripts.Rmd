@@ -126,7 +126,7 @@ We implemented two parallel workflows for preparing landmark data into the forma
 2.  **From `.csv` files**\
     Landmark coordinates saved as CSVs were read into matrices and similarly stacked into a 3D array with the same dimensional structure.
 
-Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1]. Some safety checks were also included to ensure that the produced dataset adheres to `geomorph` criteria. THIS FAILED BECAUSE IT ONLY DOWNLODS 84 files but there are 87.
+Both approaches produce the object `array3d` for use in `geomorph`, and use depends on whether user has access to raw (`.mark.json`) or derived (`.csv`) data on [OSF](https://osf.io/vkat9/) [@foster2017][^1]. Some safety checks were also included to ensure that the produced dataset adheres to `geomorph` criteria. THIS FAILED BECAUSE IT ONLY DOWNLAODS 84 files but there are 87.
 
 [^1]: in the package `osfr`, PATs are required to upload files, create projects/components, access information about your private projects, or download files in your private projects. PATs are not required for accessing information about public projects or downloading public files, but authentication with a PAT will increase the rate limit on the API
 
@@ -154,7 +154,7 @@ if (allow_upload) {
   # 1) Retrieve JSON files from Raw Data component
   json_files <- raw_node |>
   osfr::osf_ls_files(n = Inf) |>
-  dplyr::filter(grepl("\\.json$", name, ignore.case = TRUE)) %>%
+  dplyr::filter(grepl("\\.json$", name, ignore.case = TRUE)) |>
   dplyr::distinct(id, .keep_all = TRUE)
 
   # 2) Download JSON files to raw_dir
@@ -445,6 +445,108 @@ if (exists("array3d")) {
 } else {
   cat("array3d not found in the environment. Run the pipeline chunk first.\n")
 }
+```
+
+```{r, eval = FALSE}
+# Build specimen_metadata for exactly the specimens in array3d (no specimen-name changes),
+# write data/derived/specimen_metadata.csv, list specimens with no sex AND no period AND no culture,
+# and print per-period counts: total, number with missing == 0, and male/female counts.
+# Reads raw CSVs once. No library() calls; uses package namespaces.
+
+# paths
+scan_path <- "data/raw/scan.csv"
+period_path <- "data/raw/period.csv"
+demo_path <- "data/raw/demographics.csv"
+out_meta_path <- "data/derived/specimen_metadata.csv"
+
+# read raw inputs exactly once
+scan_raw <- readr::read_csv(scan_path, show_col_types = FALSE)
+period_raw <- readr::read_csv(period_path, show_col_types = FALSE)
+demo_raw <- readr::read_csv(demo_path, show_col_types = FALSE)
+
+# prepare tables (use specimen values exactly as provided; do not rename specimens)
+scan <- scan_raw %>%
+  dplyr::mutate(
+    specimen = as.character(specimen),
+    side = as.character(side),
+    missing = as.numeric(missing)
+  ) %>%
+  dplyr::select(specimen, side, missing)
+
+period_tbl <- period_raw %>%
+  dplyr::mutate(specimen = as.character(specimen)) %>%
+  dplyr::filter(!is.na(specimen)) %>%
+  dplyr::select(specimen, culture, period) %>%
+  dplyr::distinct(specimen, .keep_all = TRUE) %>%
+  dplyr::mutate(culture = as.character(culture), period = as.character(period))
+
+demo_tbl <- demo_raw %>%
+  dplyr::mutate(specimen = as.character(specimen)) %>%
+  dplyr::filter(!is.na(specimen)) %>%
+  dplyr::select(specimen, sex) %>%
+  dplyr::distinct(specimen, .keep_all = TRUE) %>%
+  dplyr::mutate(sex = as.character(sex))
+
+# combined metadata (scan is master; exact matching by specimen)
+combined <- scan %>%
+  dplyr::left_join(period_tbl, by = "specimen") %>%
+  dplyr::left_join(demo_tbl, by = "specimen") %>%
+  dplyr::select(specimen, side, missing, culture, period, sex)
+
+specimens_in_array <- as.character(dimnames(arr)[[3]])
+
+# scaffold preserves array order and ensures exactly those specimens appear
+scaffold <- data.frame(specimen = specimens_in_array, stringsAsFactors = FALSE)
+meta_filtered <- scaffold %>% dplyr::left_join(combined, by = "specimen")
+
+# write final combined metadata for the specimens in array3d (exact specimen names preserved)
+readr::write_csv(meta_filtered, out_meta_path)
+message("Wrote specimen metadata for specimens present in array3d -> ", out_meta_path)
+
+# 1) specimens with no sex AND no period AND no culture (report their exact specimen IDs)
+no_meta_mask <- is.na(meta_filtered$sex) & is.na(meta_filtered$period) & is.na(meta_filtered$culture)
+no_meta_ids <- meta_filtered$specimen[which(no_meta_mask)]
+if (length(no_meta_ids) == 0) {
+  message("No specimens have all of sex, period and culture missing.")
+} else {
+  message("Specimens with no sex, no period, and no culture (exact specimen names):")
+  cat(paste0(no_meta_ids, collapse = "\n"), "\n")
+}
+
+# 2) per-period summary:
+#    - total specimens per period (period kept as-is; NA shown as "<missing>")
+#    - number with missing == 0 (complete landmarks)
+#    - male and female counts per period (simple normalization by leading letter; does not rename specimens)
+meta2 <- meta_filtered %>%
+  dplyr::mutate(
+    period_key = ifelse(is.na(period) | period == "", "<missing>", as.character(period)),
+    complete0_missing = ifelse(is.na(missing), FALSE, missing == 0),
+    sex_norm = dplyr::case_when(
+      is.na(sex) ~ NA_character_,
+      grepl("^[Ff]", sex) ~ "female",
+      grepl("^[Mm]", sex) ~ "male",
+      TRUE ~ "other"
+    )
+  )
+
+period_summary <- meta2 %>%
+  dplyr::group_by(period_key) %>%
+  dplyr::summarise(
+    total = dplyr::n(),
+    complete0_missing = sum(complete0_missing, na.rm = TRUE),
+    n_male = sum(sex_norm == "male", na.rm = TRUE),
+    n_female = sum(sex_norm == "female", na.rm = TRUE)
+  ) %>%
+  dplyr::arrange(dplyr::desc(total))
+
+cat("\nPer-period summary (period, total, complete0_missing, n_male, n_female):\n")
+print(period_summary)
+
+invisible(list(
+  specimen_metadata = meta_filtered,
+  no_meta_ids = no_meta_ids,
+  period_summary = period_summary
+))
 ```
 
 ```{r groups, echo = FALSE}
