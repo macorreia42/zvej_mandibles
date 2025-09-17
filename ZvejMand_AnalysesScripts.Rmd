@@ -68,7 +68,10 @@ cran_pkgs <- c(
   "osfr", # interface for OSF
   "geomorph", # geometric morphometrics
   "jsonlite", # JSON parser and generator
-  "httr"
+  "httr2", # generate HTTP requests
+  "ggrepel", # for nicer group labels
+  "viridis", # for nicer colours
+  "RRPP"
 )
 
 purrr::walk(cran_pkgs, load_or_install)
@@ -465,39 +468,39 @@ period_raw <- readr::read_csv(period_path, show_col_types = FALSE)
 demo_raw <- readr::read_csv(demo_path, show_col_types = FALSE)
 
 # prepare tables (use specimen values exactly as provided; do not rename specimens)
-scan <- scan_raw %>%
+scan <- scan_raw |>
   dplyr::mutate(
     specimen = as.character(specimen),
     side = as.character(side),
     missing = as.numeric(missing)
-  ) %>%
+  ) |>
   dplyr::select(specimen, side, missing)
 
-period_tbl <- period_raw %>%
-  dplyr::mutate(specimen = as.character(specimen)) %>%
-  dplyr::filter(!is.na(specimen)) %>%
-  dplyr::select(specimen, culture, period) %>%
-  dplyr::distinct(specimen, .keep_all = TRUE) %>%
+period_tbl <- period_raw |>
+  dplyr::mutate(specimen = as.character(specimen)) |>
+  dplyr::filter(!is.na(specimen)) |>
+  dplyr::select(specimen, culture, period) |>
+  dplyr::distinct(specimen, .keep_all = TRUE) |>
   dplyr::mutate(culture = as.character(culture), period = as.character(period))
 
-demo_tbl <- demo_raw %>%
-  dplyr::mutate(specimen = as.character(specimen)) %>%
-  dplyr::filter(!is.na(specimen)) %>%
-  dplyr::select(specimen, sex) %>%
-  dplyr::distinct(specimen, .keep_all = TRUE) %>%
+demo_tbl <- demo_raw |>
+  dplyr::mutate(specimen = as.character(specimen)) |>
+  dplyr::filter(!is.na(specimen)) |>
+  dplyr::select(specimen, sex) |>
+  dplyr::distinct(specimen, .keep_all = TRUE) |>
   dplyr::mutate(sex = as.character(sex))
 
 # combined metadata (scan is master; exact matching by specimen)
-combined <- scan %>%
-  dplyr::left_join(period_tbl, by = "specimen") %>%
-  dplyr::left_join(demo_tbl, by = "specimen") %>%
+combined <- scan |>
+  dplyr::left_join(period_tbl, by = "specimen") |>
+  dplyr::left_join(demo_tbl, by = "specimen") |>
   dplyr::select(specimen, side, missing, culture, period, sex)
 
 specimens_in_array <- as.character(dimnames(arr)[[3]])
 
 # scaffold preserves array order and ensures exactly those specimens appear
 scaffold <- data.frame(specimen = specimens_in_array, stringsAsFactors = FALSE)
-meta_filtered <- scaffold %>% dplyr::left_join(combined, by = "specimen")
+meta_filtered <- scaffold |> dplyr::left_join(combined, by = "specimen")
 
 # write final combined metadata for the specimens in array3d (exact specimen names preserved)
 readr::write_csv(meta_filtered, out_meta_path)
@@ -517,7 +520,7 @@ if (length(no_meta_ids) == 0) {
 #    - total specimens per period (period kept as-is; NA shown as "<missing>")
 #    - number with missing == 0 (complete landmarks)
 #    - male and female counts per period (simple normalization by leading letter; does not rename specimens)
-meta2 <- meta_filtered %>%
+meta2 <- meta_filtered |>
   dplyr::mutate(
     period_key = ifelse(is.na(period) | period == "", "<missing>", as.character(period)),
     complete0_missing = ifelse(is.na(missing), FALSE, missing == 0),
@@ -529,14 +532,14 @@ meta2 <- meta_filtered %>%
     )
   )
 
-period_summary <- meta2 %>%
-  dplyr::group_by(period_key) %>%
+period_summary <- meta2 |>
+  dplyr::group_by(period_key) |>
   dplyr::summarise(
     total = dplyr::n(),
     complete0_missing = sum(complete0_missing, na.rm = TRUE),
     n_male = sum(sex_norm == "male", na.rm = TRUE),
     n_female = sum(sex_norm == "female", na.rm = TRUE)
-  ) %>%
+  ) |>
   dplyr::arrange(dplyr::desc(total))
 
 cat("\nPer-period summary (period, total, complete0_missing, n_male, n_female):\n")
@@ -731,7 +734,9 @@ estimateLMs <- estimate.missing(array3d, method = "TPS")
 
 Using the `gpapgen` function of the `geomorh` package, Generalized Procrustes Analysis (GPA) was used to superimpose all landmark configurations and remove the effects of location, size, and orientation on the raw coordinates. Using the `gm.prcomp` function of the `geomorph` package, Principal Component Analysis (PCA) was used to reduce dimensionality and examine shape differences between specimens.
 
-The resulting shape variables were then used to examine morphological variance and hypothetical similarities and/or differences between groups. Using the `geomorph2slicermorph2` function of the `SlicerMorphR` package, the variables were exported so they could be visualised in 3D slicer by warping a surface along the relevant PCs. There's a bug in this, so that I have to go into `analysis.json` and remove `""`, such that change `“ExcludedLM”: "[]"` is `“ExcludedLM”: []` and `“SemiLandmarks”: "[]"` is `“SemiLandmarks”: []` , before uploading the data into 3DSlicer. Question on 3DSlicer Community on [this](https://discourse.slicer.org/t/slicer-morph-gpa-interactive-3d-vizualization-cannot-warp-around-pcs/44416/2).
+The resulting shape variables were then used to examine morphological variance and hypothetical similarities and/or differences between groups. Using the `geomorph2slicermorph2` function of the `SlicerMorphR` package, the variables were exported so they could be visualised in 3D slicer by warping a surface along the relevant PCs. There's a bug in this, so that I have to go into `analysis.json` and remove `""`, such that change `“ExcludedLM”: "[]"` is `“ExcludedLM”: []` and `“SemiLandmarks”: "[]"` is `“SemiLandmarks”: []` , before uploading the data into 3DSlicer. Question on 3DSlicer Community on [this](https://discourse.slicer.org/t/slicer-morph-gpa-interactive-3d-vizualization-cannot-warp-around-pcs/44416/2).\
+\
+REMOVED 118.328 because it was an outlier
 
 ```{r gpa}
 # 1) GPA with fixed landmarks (ProcD = TRUE to compute/return Procrustes distances)
@@ -779,7 +784,669 @@ Specimens were grouped based on chronology and region (i.e., Mesolithic Iberia, 
 
 TODO: check out on paper stuff to produce graphs on ggplot using `make_ggplot`;
 
+```{r}
+plotOutliers(gpa$coords)
+#120.236
+#112.317
+#101.206
+```
+
+```{r removeoutliers}
+# Remove specified specimens and rebuild all derived objects into new variables
+outliers <- c(
+  "ILH_Zvejnieki_34.120.236_miss.mrk",
+  "ILH_Zvejnieki_34.112.317.mrk",
+  "ILH_Zvejnieki_34.101.206_miss_mirror.mrk"
+)
+
+# Check landmark_list exists
+if (!exists("landmark_list")) stop("landmark_list not found - run the JSON reading chunk first")
+
+# Find matches
+all_names <- names(landmark_list)
+matched <- all_names %in% outliers
+removed_names <- all_names[matched]
+
+if (length(removed_names) == 0) {
+  message("None of the provided outlier names were found in landmark_list.")
+  message("Available specimen names (first 20): ", paste(head(all_names, 20), collapse = ", "))
+} else {
+  message("Found and will remove the following specimens: ", paste(removed_names, collapse = ", "))
+}
+
+# Build a new landmark_list2 excluding the outliers (original landmark_list preserved)
+landmark_list2 <- landmark_list[!all_names %in% outliers]
+
+# Robust matching of landmark_list2 specimens to combined metadata
+# Produces: combined2_full (one row per landmark_list2) and combined2_matched (only matched rows)
+# Inputs assumed: landmark_list2 (named list), combined (data.frame with column 'specimen')
+
+clean_key <- function(x) {
+  x <- as.character(x)
+  x[is.na(x)] <- ""
+  x <- gsub("\\.mrk$|\\.json$|\\.MRK$|\\.JSON$", "", x, perl = TRUE)
+  x <- gsub("_miss_mirror$|_miss$|_mirror$|_merged$|_miss\\.mrk$|_miss_mirror\\.mrk$", "", x, ignore.case = TRUE, perl = TRUE)
+  x <- gsub("^ILH_", "", x, perl = TRUE)
+  x <- gsub("[[:space:]]+", "", x, perl = TRUE)
+  tolower(x)
+}
+
+# numeric token extractor (returns vector of digit tokens per name)
+extract_tokens <- function(x) {
+  lapply(as.character(x), function(s) unlist(regmatches(s, gregexpr("\\d+", s))))
+}
+
+# prepare keys
+ll_names <- names(landmark_list2)
+comb_names <- as.character(combined$specimen)
+
+ll_key  <- clean_key(ll_names)
+comb_key <- clean_key(comb_names)
+
+# first pass: exact cleaned-key match
+map_idx <- match(ll_key, comb_key)   # indices into combined (NA if no match)
+
+# second pass: numeric-token matching for NAs (accept if shares >= 2 tokens)
+na_idx <- which(is.na(map_idx))
+if (length(na_idx) > 0) {
+  ll_tokens  <- extract_tokens(ll_names)
+  comb_tokens <- extract_tokens(comb_names)
+  token_overlap <- function(a, b) length(intersect(a, b))
+  for (i in na_idx) {
+    scores <- vapply(seq_along(comb_tokens), function(j) token_overlap(ll_tokens[[i]], comb_tokens[[j]]), integer(1))
+    best_j <- which.max(scores)
+    if (scores[best_j] >= 2) map_idx[i] <- best_j  # require >=2 shared numeric tokens
+  }
+}
+
+# Build combined2_full: one row per landmark_list2 (metadata NA where unmatched)
+template <- if (nrow(combined) > 0) combined[1, , drop = FALSE] else combined[0, , drop = FALSE]
+combined_cols <- if (ncol(template) > 0) as.data.frame(matrix(NA, nrow = length(ll_names), ncol = ncol(template))) else data.frame()
+if (ncol(template) > 0) names(combined_cols) <- names(template)
+combined2_full <- cbind(.specimen_from_landmark_list = ll_names, combined_cols)
+matched_rows <- which(!is.na(map_idx))
+if (length(matched_rows)) combined2_full[matched_rows, names(template)] <- combined[map_idx[matched_rows], , drop = FALSE]
+
+# Build combined2_matched: only matched rows, in landmark_list2 order, with trace column
+if (length(matched_rows)) {
+  combined2_matched <- combined[map_idx[matched_rows], , drop = FALSE]
+  combined2_matched$.specimen_from_landmark_list <- ll_names[matched_rows]
+} else {
+  combined2_matched <- combined[0, , drop = FALSE]
+  combined2_matched$.specimen_from_landmark_list <- character(0)
+}
+
+# Summary (optional)
+message("Total specimens in landmark_list2: ", length(ll_names),
+        "  Matched: ", length(matched_rows),
+        "  Unmatched (kept in combined2_full with NA metadata): ", length(ll_names) - length(matched_rows))
+
+# Rebuild array3d2 from landmark_list2
+if (length(landmark_list2) == 0) stop("No specimens remain after removal. Aborting.")
+# ensure consistent landmark counts
+counts2 <- vapply(landmark_list2, nrow, integer(1))
+if (!all(counts2 == counts2[1])) {
+  stop("Not all specimens in landmark_list2 have the same number of landmarks. Counts:\n",
+       paste(names(counts2), counts2, collapse = "\n"))
+}
+p2 <- as.integer(counts2[1])
+k2 <- ncol(landmark_list2[[1]])
+n2 <- length(landmark_list2)
+
+array3d2 <- array(NA_real_, dim = c(p2, k2, n2),
+                  dimnames = list(landmark = seq_len(p2),
+                                  coord = colnames(landmark_list2[[1]]),
+                                  specimen = names(landmark_list2)))
+for (i in seq_along(landmark_list2)) array3d2[ , , i] <- landmark_list2[[i]]
+storage.mode(array3d2) <- "double"
+
+# Re-estimate missing landmarks (TPS) and recompute GPA and PCA into new objects
+if (!requireNamespace("geomorph", quietly = TRUE)) stop("Package 'geomorph' required but not installed.")
+estimateLMs2 <- estimate.missing(array3d2, method = "TPS")
+
+# Run gpagen (returns gpa2)
+gpa2 <- geomorph::gpagen(A = estimateLMs2, ProcD = TRUE)
+
+# PCA on aligned coords (use gm.prcomp as before)
+pca2 <- geomorph::gm.prcomp(gpa2$coords)
+
+# Rebuild scores_df2 and pct2 and plot_df2 (metadata-joined)
+scores_df2 <- as.data.frame(pca2$x)
+scores_df2$specimen <- dimnames(gpa2$coords)[[3]]
+
+pct2 <- (pca2$sdev^2) / sum(pca2$sdev^2) * 100
+
+if (!is.null(combined2)) {
+  plot_df2 <- dplyr::left_join(scores_df2, combined2, by = "specimen")
+} else {
+  plot_df2 <- scores_df2
+}
+
+# Summary messages / quick checks
+message("Removal summary: removed ", length(removed_names), " specimens (names shown above).")
+message("New sample size (n): ", dim(gpa2$coords)[3])
+message("Number of landmarks (p): ", dim(gpa2$coords)[1], "; coordinates (k): ", dim(gpa2$coords)[2])
+message("Top 3 percent variances (pct2): ", paste(sprintf("%.2f", head(pct2, 3)), collapse = ", "))
+
+# Quick integrity checks
+stopifnot(length(dimnames(gpa2$coords)[[3]]) == nrow(scores_df2))
+if (!is.null(combined2)) {
+  if (!all(scores_df2$specimen %in% combined2$specimen)) {
+    warning("Not all specimens in scores_df2 are present in combined2. Check specimen naming.")
+  }
+}
+
+plotOutliers(gpa2$coords)
+
+# Objects created: landmark_list2, array3d2, estimateLMs2, gpa2, pca2, scores_df2, pct2, plot_df2, combined2
+
+```
+
+```{r}
+
+# 1) Ensure scores_df2 exists and has the specimen column
+stopifnot(exists("scores_df2"))
+stopifnot("specimen" %in% names(scores_df2))
+
+# 2) Ensure combined2_matched exists and contains the trace column
+stopifnot(exists("combined2_matched"))
+stopifnot(".specimen_from_landmark_list" %in% names(combined2_matched))
+
+# 3) Join PCA scores to matched metadata (preserves only specimens that have metadata)
+plot_df2 <- left_join(scores_df2, 
+                      combined2_matched, 
+                      by = c("specimen" = ".specimen_from_landmark_list"))
+
+period_levels <- c("MM", "LM", "LM/EN", "EN/MN", "MN", "LBA/IA", "EIA")
+sex_levels   <- c("Female", "Male")
+
+plot_df2$period <- factor(plot_df2$period, levels = period_levels)
+plot_df2$sex    <- factor(plot_df2$sex,    levels = sex_levels)
+
+
+```
+
+```{r}
+# percent variance for axis labels
+pct2 <- (pca2$sdev^2) / sum(pca2$sdev^2) * 100
+
+# named palettes (deterministic mapping even when some groups lack hulls)
+pal_period <- viridis(length(period_levels), option = "D", direction = -1)
+names(pal_period) <- period_levels
+
+pal_sex <- colorRampPalette(c("yellow", "royalblue"))(length(sex_levels))
+names(pal_sex) <- sex_levels
+```
+
+```{r}
+# Create a joined dataframe with centroid size
+stopifnot(exists("plot_df2"), exists("scores_df2"), exists("gpa2"))
+# build Csize table aligned to scores_df2 ordering
+cs_df <- data.frame(
+  specimen = if ("specimen" %in% names(scores_df2)) scores_df2$specimen else rownames(scores_df2),
+  Csize = as.numeric(gpa2$Csize),
+  stringsAsFactors = FALSE
+)
+plot_df2_cs <- left_join(plot_df2, cs_df, by = "specimen")
+
+# Ensure period factor levels (use your exact ordering)
+period_levels <- c("MM","LM","LM/EN","EN/MN","MN","LBA/IA","EIA")
+plot_df2_cs$period <- factor(plot_df2_cs$period, levels = period_levels)
+
+
+# Compute per-period counts and a y position for labels
+range_c <- range(plot_df2_cs$Csize, na.rm = TRUE)
+pad    <- diff(range_c) * 0.06
+cnt_df <- plot_df2_cs |>
+  group_by(period) |>
+  summarise(n = sum(!is.na(Csize)), y = max(Csize, na.rm = TRUE) + pad) |>
+  ungroup()
+
+# Plot function
+plot_csize_by_period <- function(data = plot_df2_cs, ylab = "Centroid size (Csize)") {
+  ggplot(data, aes(x = period, y = Csize, fill = period)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = 0.18, size = 2, alpha = 0.9, color = "black") +
+    stat_summary(fun = median, geom = "point", shape = 23, size = 3, fill = "white") +
+    geom_text(data = cnt_df, aes(x = period, y = y, label = paste0("n=", n)),
+              inherit.aes = FALSE, size = 3, vjust = 0) +
+    scale_fill_manual(values = pal_period, na.value = "grey70") +
+    labs(x = "Period", y = ylab) +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 30, hjust = 1))
+}
+
+# Run it
+print(plot_csize_by_period())
+```
+
+```{r}
+# Chunk 2: robust helper (no rename collisions)
+make_hulls_and_centroids <- function(data, compx, compy, group_col) {
+  non_na <- data |> filter(!is.na(.data[[group_col]]))
+  hulls <- non_na |>
+    group_by_at(group_col) |>
+    filter(n() >= 3) |>
+    group_modify(~ {
+      idx <- chull(.x[[compx]], .x[[compy]])
+      out <- .x[idx, , drop = FALSE]
+      out$group <- as.character(.y[[1]])
+      out
+    }) |>
+    ungroup()
+  cents <- non_na |>
+    group_by_at(group_col) |>
+    summarise(cx = mean(.data[[compx]], na.rm = TRUE),
+              cy = mean(.data[[compy]], na.rm = TRUE),
+              n  = n()) |>
+    ungroup()
+  if (group_col %in% names(cents)) names(cents)[names(cents) == group_col] <- "group"
+  list(hulls = hulls, cents = cents)
+}
+```
+
+```{r}
+# Chunk 3: plot by period
+plotPC_period <- function(pcx = 1, pcy = 2, point_size = 3, hull_alpha = 0.12) {
+  compx <- names(scores_df2)[pcx]
+  compy <- names(scores_df2)[pcy]
+  xlab <- sprintf("%s (%.1f%%)", compx, pct2[pcx])
+  ylab <- sprintf("%s (%.1f%%)", compy, pct2[pcy])
+
+  hc <- make_hulls_and_centroids(plot_df2, compx, compy, "period")
+  hulls <- hc$hulls
+  cents <- hc$cents
+
+  if (nrow(hulls) > 0) hulls$group <- factor(hulls$group, levels = period_levels)
+  if (nrow(cents) > 0)  cents$group <- factor(cents$group, levels = period_levels)
+
+  ggplot(plot_df2, aes_string(x = compx, y = compy, color = "period")) +
+    { if (nrow(hulls) > 0) geom_polygon(data = hulls,
+                 aes_string(x = compx, y = compy, fill = "group", group = "group"),
+                 color = NA, alpha = hull_alpha, inherit.aes = FALSE) } +
+    geom_point(size = point_size, alpha = 0.95) +
+    { if (nrow(cents) > 0) geom_text_repel(data = cents,
+                    aes(x = cx, y = cy, label = group),
+                    inherit.aes = FALSE, size = 4, segment.color = NA, box.padding = 0.6) } +
+    labs(x = xlab, y = ylab, color = "Period", fill = "Period") +
+    theme_minimal() +
+    theme(legend.position = "right") +
+    scale_color_manual(name = "Period", values = pal_period, na.value = "grey60") +
+    scale_fill_manual(name = "Period",  values = pal_period, na.value = "grey60")
+}
+```
+
+```{r}
+# Chunk 4: plot by sex
+plotPC_sex <- function(pcx = 1, pcy = 2, point_size = 3, hull_alpha = 0.12, show_counts = TRUE) {
+  compx <- names(scores_df2)[pcx]
+  compy <- names(scores_df2)[pcy]
+  xlab <- sprintf("%s (%.1f%%)", compx, pct2[pcx])
+  ylab <- sprintf("%s (%.1f%%)", compy, pct2[pcy])
+
+  plot_df2$sex <- factor(plot_df2$sex, levels = sex_levels)
+
+  hc <- make_hulls_and_centroids(plot_df, compx, compy, "sex")
+  hulls <- hc$hulls
+  cents <- hc$cents
+
+  if (nrow(hulls) > 0) hulls$group <- factor(hulls$group, levels = sex_levels)
+
+  if (nrow(cents) > 0) {
+    cents$group <- as.character(cents$group)
+    cents$label <- if (show_counts) paste0(cents$group, " (n=", cents$n, ")") else as.character(cents$group)
+  } else {
+    cents <- data.frame(cx = numeric(0), cy = numeric(0), n = integer(0), group = factor(levels = sex_levels), label = character(0), stringsAsFactors = FALSE)
+  }
+
+  ggplot(plot_df2, aes_string(x = compx, y = compy, color = "sex")) +
+    { if (nrow(hulls) > 0) geom_polygon(data = hulls,
+                 aes_string(x = compx, y = compy, fill = "group", group = "group"),
+                 color = NA, alpha = hull_alpha, inherit.aes = FALSE) } +
+    geom_point(size = point_size, alpha = 0.95) +
+    geom_text_repel(data = cents, aes_string(x = "cx", y = "cy", label = "label"),
+                    inherit.aes = FALSE, size = 4, segment.color = NA, box.padding = 0.6) +
+    labs(x = xlab, y = ylab, color = "Sex", fill = "Sex") +
+    theme_minimal() +
+    theme(legend.position = "right") +
+    scale_color_manual(name = "Sex", values = pal_sex, na.value = "grey60") +
+    scale_fill_manual(name = "Sex",  values = pal_sex, na.value = "grey60")
+}
+```
+
+```{r}
+# plotPC_labels: black points, labels simplified from specimen names
+# Defaults: uses plot_df if present (joined scores+metadata), otherwise scores_df2
+# Labels: removes the prefix "ILH_Zvejnieki_34." and common suffixes like _merged/_miss/_mirror/.mrk
+plotPC_labels <- function(pcx = 1, pcy = 2, data = if (exists("plot_df")) plot_df else scores_df2,
+                          specimen_col = "specimen", prefix = "ILH_Zvejnieki_34\\.") {
+  if (!requireNamespace("ggrepel", quietly = TRUE)) stop("install.packages('ggrepel') to use this function")
+  compx <- names(scores_df2)[pcx]
+  compy <- names(scores_df2)[pcy]
+  # axis labels using pct2 if present
+  if (exists("pct2")) {
+    xlab <- sprintf("%s (%.1f%%)", compx, pct2[pcx])
+    ylab <- sprintf("%s (%.1f%%)", compy, pct2[pcy])
+  } else {
+    xlab <- compx; ylab <- compy
+  }
+  # build simplified labels
+  lab_raw <- as.character(data[[specimen_col]])
+  lab_simple <- sub(paste0("^.*", prefix), "", lab_raw)                          # remove prefix and anything before
+  lab_simple <- sub("(?i)(_merged(_mirror)?|_miss(_mirror)?|_mirror|\\.mrk).*", "", lab_simple, perl = TRUE) # remove suffixes
+  lab_simple <- sub("^[._-]+|[._-]+$", "", lab_simple)                           # trim leftover punctuation
+  data$.label_simple <- lab_simple
+
+  library(ggplot2)
+  library(ggrepel)
+  ggplot(data, aes_string(x = compx, y = compy)) +
+    geom_point(color = "black", size = 2) +
+    geom_text_repel(aes(label = .label_simple), color = "black", size = 3, max.overlaps = Inf) +
+    labs(x = xlab, y = ylab) +
+    theme_minimal()
+}
+```
+
+```{r}
+# Chunk 5: example plots to run immediately
+plotPC_period(1,2)
+plotPC_period(7,19)
+plotPC_sex(1,2)
+
+# Scree plot
+# scree_pca: simple scree barplot for a PCA-like object (has $sdev)
+scree_pca <- function(pca_obj, n_show = NULL) {
+  if (is.null(pca_obj$sdev)) stop("pca_obj must have $sdev (e.g., result of prcomp)")
+  pct <- (pca_obj$sdev^2) / sum(pca_obj$sdev^2) * 100
+  if (is.null(n_show)) n_show <- length(pct)
+  df <- data.frame(PC = seq_len(n_show), Percent = pct[seq_len(n_show)])
+  library(ggplot2)
+  ggplot(df, aes(x = PC, y = Percent)) +
+    geom_col(fill = "steelblue", alpha = 0.9) +
+    geom_text(aes(label = sprintf("%.1f", Percent)), vjust = -0.4, size = 3) +
+    scale_x_continuous(breaks = seq_len(n_show)) +
+    labs(x = "Principal component", y = "Percent variance explained") +
+    theme_minimal()
+}
+scree_pca(pca2, n_show= 30)
+```
+
+```{r}
+plot_pc_boxplots_by_period <- function(npcs = 20,
+                                       data = if (exists("plot_df2", envir = .GlobalEnv)) get("plot_df2", envir = .GlobalEnv) else stop("plot_df2 not found"),
+                                       scores = if (exists("scores_df2", envir = .GlobalEnv)) get("scores_df2", envir = .GlobalEnv) else stop("scores_df2 not found"),
+                                       period_col = "period",
+                                       min_n = 3,
+                                       pal = NULL,
+                                       jitter = TRUE,
+                                       point_size = 1.5) {
+  # determine PC columns robustly
+  if (!is.null(colnames(scores))) {
+    all_pc_cols <- colnames(scores)
+  } else if (!is.null(names(scores))) {
+    all_pc_cols <- names(scores)
+  } else {
+    stop("scores must have column names or names()")
+  }
+  npcs <- min(npcs, length(all_pc_cols))
+  pc_cols <- all_pc_cols[seq_len(npcs)]
+
+  # ensure specimen column in scores (use rownames if needed)
+  if (!"specimen" %in% colnames(as.data.frame(scores))) {
+    scores_df <- as.data.frame(scores, stringsAsFactors = FALSE)
+    if (!is.null(rownames(scores_df))) {
+      scores_df$specimen <- rownames(scores_df)
+    } else {
+      stop("scores has no 'specimen' column or rownames to use as specimen IDs")
+    }
+  } else {
+    scores_df <- as.data.frame(scores, stringsAsFactors = FALSE)
+  }
+
+  # attach PCs to data if missing
+  missing_pcs <- setdiff(pc_cols, colnames(as.data.frame(data)))
+  data_df <- as.data.frame(data)
+  if (length(missing_pcs) > 0) {
+    scores_sub <- scores_df[, c("specimen", pc_cols), drop = FALSE]
+    data_df <- dplyr::left_join(data_df, scores_sub, by = "specimen")
+  }
+
+  # drop NA period and keep levels with >= min_n
+  data2 <- data_df[!is.na(data_df[[period_col]]), , drop = FALSE]
+  counts <- table(data2[[period_col]], useNA = "no")
+  keep_levels <- names(counts[counts >= min_n])
+  if (length(keep_levels) == 0) stop("No period groups with >= min_n samples")
+  data2 <- data2[data2[[period_col]] %in% keep_levels, , drop = FALSE]
+  data2[[period_col]] <- factor(data2[[period_col]], levels = keep_levels)
+
+  # prepare palette
+  if (is.null(pal)) {
+    if (exists("pal_period", envir = .GlobalEnv)) {
+      pal <- get("pal_period", envir = .GlobalEnv)
+    } else {
+      pal <- viridis::viridis(length(keep_levels), option = "D")
+    }
+  }
+  if (length(pal) < length(keep_levels)) pal <- rep(pal, length.out = length(keep_levels))
+  pal_named <- setNames(pal[seq_len(length(keep_levels))], keep_levels)
+
+  # prepare percent-variance vector: prefer pct2, else compute from pca2 if available
+  pct_vec <- NULL
+  if (exists("pct2", envir = .GlobalEnv)) {
+    pct_tmp <- get("pct2", envir = .GlobalEnv)
+    if (length(pct_tmp) >= 1) pct_vec <- as.numeric(pct_tmp)
+  } else if (exists("pca2", envir = .GlobalEnv)) {
+    pca_tmp <- get("pca2", envir = .GlobalEnv)
+    if (!is.null(pca_tmp$sdev)) {
+      pct_vec <- (pca_tmp$sdev^2) / sum(pca_tmp$sdev^2) * 100
+    }
+  }
+  # pct_vec may be NULL; we'll handle per-PC fallback below
+
+  # helper to build the y-axis label including % variance when available
+  make_pc_label <- function(pc_name) {
+    # try to extract integer index from PC name (handles "PC1", "PC 1", "Comp1", etc.)
+    idx <- as.integer(gsub(".*?(\\d+).*", "\\1", pc_name))
+    if (!is.na(idx) && !is.null(pct_vec) && length(pct_vec) >= idx) {
+      pct <- round(pct_vec[idx], 1)
+      return(sprintf("%s (%.1f%%)", pc_name, pct))
+    } else {
+      return(pc_name)
+    }
+  }
+
+  # build plots
+  plots <- vector("list", length = length(pc_cols))
+  names(plots) <- pc_cols
+  for (pc in pc_cols) {
+    ylab_label <- make_pc_label(pc)
+    p <- ggplot2::ggplot(data2, ggplot2::aes_string(x = period_col, y = pc, fill = period_col)) +
+      ggplot2::geom_boxplot(outlier.shape = NA) +
+      ggplot2::scale_fill_manual(values = pal_named, guide = "none") +
+      ggplot2::labs(x = "Period", y = ylab_label) +
+      ggplot2::theme_minimal() +
+      ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 25, hjust = 1))
+
+    if (isTRUE(jitter)) {
+      p <- p + ggplot2::geom_jitter(width = 0.2, size = point_size, color = "black", alpha = 0.8)
+    } else {
+      p <- p + ggplot2::geom_point(position = ggplot2::position_jitter(width = 0.02, height = 0), size = point_size)
+    }
+    plots[[pc]] <- p
+  }
+
+  invisible(plots)
+}
+```
+
+```{r}
+p_list <- plot_pc_boxplots_by_period(min_n = 3)
+# call this after p_list <- plot_pc_boxplots_by_period(min_n = 3)
+save_plots_to_repo_pngs <- function(p_list = if (exists("p_list", envir = .GlobalEnv)) get("p_list", envir = .GlobalEnv) else stop("p_list not found"),
+                                   out_dir = "data/images",
+                                   prefix = "PC_boxplot",
+                                   width = 6, height = 4, units = "in", dpi = 300) {
+  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  i <- 0L
+  for (nm in names(p_list)) {
+    i <- i + 1L
+    idx <- sprintf("%02d", i)
+    safe_nm <- gsub("[^A-Za-z0-9_\\-]", "_", nm)
+    fname <- file.path(out_dir, sprintf("%s_%s_%s.png", prefix, idx, safe_nm))
+    ggplot2::ggsave(filename = fname, plot = p_list[[nm]], width = width, height = height, units = units, dpi = dpi, device = "png")
+  }
+  invisible(list(path = normalizePath(out_dir), files = list.files(out_dir, pattern = "\\.png$", full.names = TRUE)))
+}
+
+# Example usage:
+# p_list <- plot_pc_boxplots_by_period(min_n = 1)
+save_plots_to_repo_pngs(p_list)
+```
+
+```{r}
+# RRPP ANOVA on raw Csize, excluding period==NA and groups with <3 individuals
+library(RRPP)   # install.packages("RRPP") if needed
+
+stopifnot(exists("plot_df2"), exists("gpa2"))
+
+# 1) Join Csize into plot_df2
+plot_df2_cs <- plot_df2 |>
+  mutate(Csize = as.numeric(gpa2$Csize[match(specimen, if ("specimen" %in% names(scores_df2)) scores_df2$specimen else rownames(scores_df2))]))
+
+# 2) discard NA period and compute per-period counts
+plot_df2_cs <- plot_df2_cs |> filter(!is.na(period), !is.na(Csize))
+counts <- plot_df2_cs |> group_by(period) |> summarise(n = n()) |> arrange(desc(n))
+
+# 3) keep only periods with >= 3 individuals
+keep_periods <- counts |> filter(n >= 3) |> pull(period)
+plot_df2_cs_filt <- plot_df2_cs |> filter(period %in% keep_periods) |>
+  mutate(period = droplevels(factor(period, levels = keep_periods)))
+
+message("Periods kept (n >= 3): ", paste(keep_periods, collapse = ", "))
+print(counts)
+
+# 4) Permutation ANOVA with RRPP on raw Csize (no log)
+Y <- as.matrix(plot_df2_cs_filt$Csize)
+fit_rrpp <- lm.rrpp(Y ~ period, data = plot_df2_cs_filt, iter = 9999, print.progress = FALSE)
+anova_rrpp <- anova(fit_rrpp)
+print(anova_rrpp)
+print(summary(fit_rrpp))
+
+# 5) Pairwise permutation test on raw Csize for remaining groups
+pairwise_perm_means_raw <- function(x, grp, nperm = 9999, seed = 42) {
+  set.seed(seed)
+  grp <- factor(grp)
+  levs <- levels(grp)
+  pairs <- t(combn(levs, 2))
+  res <- data.frame(g1 = pairs[,1], g2 = pairs[,2], obs_diff = NA_real_, p_perm = NA_real_, stringsAsFactors = FALSE)
+  for (i in seq_len(nrow(res))) {
+    a <- res$g1[i]; b <- res$g2[i]
+    xa <- x[grp == a]; xb <- x[grp == b]
+    # require both groups >= 3
+    if (length(xa) < 3 || length(xb) < 3) {
+      res$obs_diff[i] <- NA
+      res$p_perm[i] <- NA
+      next
+    }
+    obs <- mean(xa) - mean(xb)
+    cmb <- c(xa, xb)
+    nA <- length(xa)
+    perms <- replicate(nperm, {
+      lab <- sample.int(length(cmb))
+      mean(cmb[lab[1:nA]]) - mean(cmb[lab[(nA+1):length(cmb)]])
+    })
+    pval <- (sum(abs(perms) >= abs(obs)) + 1) / (nperm + 1)
+    res$obs_diff[i] <- obs
+    res$p_perm[i] <- pval
+  }
+  res$p_adj <- p.adjust(res$p_perm, method = "BH")
+  res
+}
+
+pw_res_raw <- pairwise_perm_means_raw(plot_df2_cs_filt$Csize, plot_df2_cs_filt$period, nperm = 9999)
+print(pw_res_raw)
+```
+
+```{r}
+# overall centroid-location test (group effect) with covariate example
+# gpa2$coords: p x k x n array of aligned coordinates
+run_procDlm_dropNA <- function(group_col = "period", min_n = 4, iter = 999, verbose = TRUE) {
+  # Preconditions: gpa2 (from gpagen) and plot_df2 (with 'specimen' column and group_col) must exist
+  if (!exists("gpa2", envir = .GlobalEnv)) stop("gpa2 not found in the workspace")
+  if (!exists("plot_df2", envir = .GlobalEnv)) stop("plot_df2 not found in the workspace")
+  coords <- get("gpa2", envir = .GlobalEnv)$coords
+  if (is.null(dim(coords)) || length(dim(coords)) < 3) stop("gpa2$coords must be a p x k x n array")
+  specimens <- dimnames(coords)[[3]]
+  if (is.null(specimens)) stop("dimnames(gpa2$coords)[[3]] missing; need specimen IDs")
+
+  pd <- get("plot_df2", envir = .GlobalEnv)
+  if (!"specimen" %in% names(pd)) stop("plot_df2 must have a 'specimen' column")
+  if (!group_col %in% names(pd)) stop(paste0("plot_df2 does not contain group column '", group_col, "'"))
+
+  # Build grouping vector aligned to coords specimen order
+  grp_full <- pd[[group_col]][match(specimens, pd$specimen)]
+
+  # Report and drop any specimens not found in plot_df2 (match -> NA) or with NA group
+  missing_in_pd <- sum(is.na(match(specimens, pd$specimen)))
+  if (missing_in_pd > 0 && verbose) {
+    message("Note: ", missing_in_pd, " specimen(s) from gpa2$coords were not found in plot_df2$specimen and will be dropped.")
+  }
+  na_group_count <- sum(is.na(grp_full))
+  if (na_group_count > 0 && verbose) {
+    message("Note: ", na_group_count, " specimen(s) have NA for group '", group_col, "' and will be dropped.")
+  }
+
+  # Keep only specimens with non-NA group after matching
+  keep_spec <- which(!is.na(grp_full))
+  if (length(keep_spec) == 0) stop("After matching, no specimens with non-NA group remain")
+  coords_sub <- coords[,, keep_spec, drop = FALSE]
+  grp_sub <- factor(grp_full[keep_spec])
+
+  # Drop groups with fewer than min_n members
+  tab <- table(grp_sub)
+  keep_groups <- names(tab[tab >= min_n])
+  if (length(keep_groups) == 0) stop("No groups with >= ", min_n, " specimens after filtering")
+  keep_idx <- which(as.character(grp_sub) %in% keep_groups)
+  coords_final <- coords_sub[,, keep_idx, drop = FALSE]
+  grp_final <- factor(grp_sub[keep_idx], levels = keep_groups)
+
+  if (verbose) {
+    message("Specimens kept: ", dim(coords_final)[3])
+    message("Groups kept and counts:")
+    print(table(grp_final))
+  }
+
+  # assemble geomorph data frame and run procD.lm
+  gdf <- geomorph::geomorph.data.frame(shape = coords_final, group = grp_final)
+
+  res <- geomorph::procD.lm(shape ~ group, data = gdf, iter = iter, print.progress = FALSE)
+
+  # Use generic anova() so S3 dispatch calls geomorph's internal method
+  anova_obj <- stats::anova(res)
+  summary_obj <- summary(res)
+
+  if (verbose) {
+    message("Permutation ANOVA for model:")
+    print(anova_obj)
+    message("Model summary:")
+    print(summary_obj)
+  }
+
+  invisible(list(model = res, anova = anova_obj, summary = summary_obj, gdf = gdf))
+}
+
+# Example usage:
+results <- run_procDlm_dropNA(group_col = "period", min_n = 4, iter = 999)
+stats::anova(results$model)   # if you want to re-print
+summary(results$model)
+```
+
+\
+
 ```{r stats, eval=FALSE}
+# Morphological disparity without covariates, using overall mean  morphol.disparity(shape ~ 1, groups= ~ species*site, data = gdf, iter=999, print.progress = FALSE)
+
 
 Y.gpa <- gpagen(plethodon$land, PrinAxes = FALSE)
 gdf <- geomorph.data.frame(Y.gpa)
